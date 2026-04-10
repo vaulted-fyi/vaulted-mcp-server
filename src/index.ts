@@ -4,6 +4,8 @@ import { fileURLToPath } from "node:url";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod/v4";
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+import { config } from "./config.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
