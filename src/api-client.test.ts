@@ -94,7 +94,7 @@ describe("createSecret", () => {
     mockFetch.mockResolvedValueOnce({
       ok: false,
       status: 400,
-      json: async () => ({ error: "ciphertext is required" }),
+      text: async () => JSON.stringify({ error: "ciphertext is required" }),
     });
 
     try {
@@ -103,6 +103,7 @@ describe("createSecret", () => {
     } catch (err) {
       expect(err).toBeInstanceOf(ApiError);
       expect((err as InstanceType<typeof ApiError>).status).toBe(400);
+      expect((err as InstanceType<typeof ApiError>).code).toBe("INVALID_INPUT");
       expect((err as InstanceType<typeof ApiError>).body).toEqual({
         error: "ciphertext is required",
       });
@@ -113,7 +114,7 @@ describe("createSecret", () => {
     mockFetch.mockResolvedValueOnce({
       ok: false,
       status: 500,
-      json: async () => ({ error: "internal server error" }),
+      text: async () => JSON.stringify({ error: "internal server error" }),
     });
 
     try {
@@ -122,6 +123,28 @@ describe("createSecret", () => {
     } catch (err) {
       expect(err).toBeInstanceOf(ApiError);
       expect((err as InstanceType<typeof ApiError>).status).toBe(500);
+      expect((err as InstanceType<typeof ApiError>).code).toBe("API_UNREACHABLE");
+      expect((err as InstanceType<typeof ApiError>).body).toEqual({
+        error: "internal server error",
+      });
+    }
+  });
+
+  it("captures plain-text error bodies on non-JSON responses", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 502,
+      text: async () => "bad gateway",
+    });
+
+    try {
+      await createSecret(validParams);
+      expect.fail("should have thrown");
+    } catch (err) {
+      expect(err).toBeInstanceOf(ApiError);
+      expect((err as InstanceType<typeof ApiError>).status).toBe(502);
+      expect((err as InstanceType<typeof ApiError>).code).toBe("API_UNREACHABLE");
+      expect((err as InstanceType<typeof ApiError>).body).toBe("bad gateway");
     }
   });
 

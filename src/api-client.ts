@@ -1,4 +1,5 @@
 import { config } from "./config.js";
+import type { ErrorCode } from "./errors.js";
 
 export interface CreateSecretParams {
   ciphertext: string;
@@ -17,7 +18,7 @@ export class ApiError extends Error {
   constructor(
     message: string,
     public readonly status: number,
-    public readonly code: string,
+    public readonly code: ErrorCode,
     public readonly body?: unknown,
   ) {
     super(message);
@@ -38,16 +39,21 @@ export async function createSecret(params: CreateSecretParams): Promise<CreateSe
   }
 
   if (!response.ok) {
-    let body: unknown;
-    try {
-      body = await response.json();
-    } catch {
-      body = await response.text().catch(() => null);
+    const rawBody = await response.text().catch(() => null);
+    let body: unknown = rawBody;
+    if (rawBody) {
+      try {
+        body = JSON.parse(rawBody);
+      } catch {
+        body = rawBody;
+      }
     }
+
+    const code: ErrorCode = response.status >= 500 ? "API_UNREACHABLE" : "INVALID_INPUT";
     throw new ApiError(
       `Vaulted API returned ${response.status}`,
       response.status,
-      "API_ERROR",
+      code,
       body,
     );
   }
