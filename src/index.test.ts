@@ -15,6 +15,24 @@ vi.mock("@modelcontextprotocol/sdk/server/stdio.js", () => {
   };
 });
 
+vi.mock("./api-client.js", () => ({
+  createSecret: vi.fn().mockResolvedValue({ id: "test-id", statusToken: "test-token" }),
+  ApiError: class ApiError extends Error {
+    constructor(
+      message: string,
+      public readonly status: number,
+      public readonly code: string,
+    ) {
+      super(message);
+      this.name = "ApiError";
+    }
+  },
+}));
+
+vi.mock("./config.js", () => ({
+  config: { baseUrl: "https://vaulted.fyi", allowedDirs: [] },
+}));
+
 const { createServer, VERSION } = await import("./index.js");
 
 describe("server instantiation", () => {
@@ -116,16 +134,6 @@ describe("placeholder handlers", () => {
     await server.close();
   });
 
-  it("create_secret returns 'not implemented yet'", async () => {
-    const result = await client.callTool({
-      name: "create_secret",
-      arguments: { content: "test" },
-    });
-    const text = (result.content as Array<{ type: string; text: string }>)[0].text;
-    const parsed = JSON.parse(text);
-    expect(parsed).toEqual({ success: false, error: "not implemented yet" });
-  });
-
   it("view_secret returns 'not implemented yet'", async () => {
     const result = await client.callTool({
       name: "view_secret",
@@ -144,6 +152,43 @@ describe("placeholder handlers", () => {
     const text = (result.content as Array<{ type: string; text: string }>)[0].text;
     const parsed = JSON.parse(text);
     expect(parsed).toEqual({ success: false, error: "not implemented yet" });
+  });
+});
+
+describe("create_secret integration via MCP client", () => {
+  let client: InstanceType<typeof Client>;
+  let server: ReturnType<typeof createServer>;
+
+  beforeEach(async () => {
+    server = createServer();
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    client = new Client({ name: "test-client", version: "1.0.0" });
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+  });
+
+  afterEach(async () => {
+    await client.close();
+    await server.close();
+  });
+
+  it("returns structured JSON with success: true and expected data fields", async () => {
+    const result = await client.callTool({
+      name: "create_secret",
+      arguments: { content: "my-secret-api-key" },
+    });
+    const text = (result.content as Array<{ type: string; text: string }>)[0].text;
+    const parsed = JSON.parse(text);
+
+    expect(parsed.success).toBe(true);
+    expect(parsed.data).toEqual({
+      url: expect.stringContaining("https://vaulted.fyi/s/"),
+      statusUrl: expect.stringContaining("/status?token="),
+      expiresIn: "24h",
+      maxViews: 1,
+      passphraseProtected: false,
+    });
+    expect(parsed.message).toContain("Secret created successfully");
   });
 });
 

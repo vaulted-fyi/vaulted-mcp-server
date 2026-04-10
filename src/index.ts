@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod/v4";
+import { handleCreateSecret } from "./tools/create-secret.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -28,10 +29,25 @@ export function createServer(): McpServer {
       description:
         "Create a secure, self-destructing link for sharing sensitive data like passwords, API keys, or credentials. The secret is encrypted end-to-end — the server never sees plaintext. Supports reading secrets from environment variables, files, or .env files without exposing them in the conversation.",
       inputSchema: {
-        content: z.string(),
-        max_views: z.number().optional(),
-        expiry: z.string().optional(),
-        passphrase: z.string().optional(),
+        content: z
+          .string()
+          .describe("The secret content to encrypt and share. Max 1000 characters."),
+        max_views: z
+          .enum(["1", "3", "5", "10"])
+          .optional()
+          .describe(
+            "Maximum number of times the secret can be viewed before self-destructing. Defaults to 1.",
+          ),
+        expiry: z
+          .enum(["1h", "2h", "6h", "12h", "24h", "3d", "7d", "14d", "30d"])
+          .optional()
+          .describe("How long before the secret expires. Defaults to 24h."),
+        passphrase: z
+          .string()
+          .optional()
+          .describe(
+            "Optional passphrase for additional protection. The recipient will need this passphrase to view the secret.",
+          ),
       },
       annotations: {
         readOnlyHint: false,
@@ -39,17 +55,7 @@ export function createServer(): McpServer {
         idempotentHint: false,
       },
     },
-    async () => ({
-      content: [
-        {
-          type: "text" as const,
-          text: JSON.stringify({
-            success: false,
-            error: "not implemented yet",
-          }),
-        },
-      ],
-    }),
+    async (params) => handleCreateSecret(params),
   );
 
   server.registerTool(
