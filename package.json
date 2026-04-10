@@ -1,0 +1,48 @@
+{
+  "name": "vaulted-mcp-server",
+  "version": "0.1.0",
+  "description": "MCP server for sharing secrets via Vaulted — zero-knowledge encryption",
+  "type": "module",
+  "main": "./dist/index.js",
+  "bin": {
+    "vaulted-mcp-server": "./dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "lint": "eslint src/",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "keywords": [
+    "mcp",
+    "secrets",
+    "encryption",
+    "vaulted",
+    "zero-knowledge"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vaulted-fyi/vaulted-mcp-server.git"
+  },
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@vaulted/crypto": "^1.0.0",
+    "open": "^11.0.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^25.6.0",
+    "eslint": "^10.2.0",
+    "tsup": "^8.5.1",
+    "typescript": "^6.0.2",
+    "typescript-eslint": "^8.58.1",
+    "vitest": "^4.1.4"
+  }
+}
