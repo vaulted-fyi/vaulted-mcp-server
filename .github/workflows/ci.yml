@@ -9,6 +9,10 @@ on:
 jobs:
   checks:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      checks: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -22,5 +26,9 @@ jobs:
       - run: npm ci
         if: steps.node-cache.outputs.cache-hit != 'true'
       - run: npm run lint
-      - run: npm run test
+      - run: npm run test -- --reporter=default --reporter=junit --outputFile.junit=test-results/junit.xml
+      - uses: testglance/action@v1
+        if: always()
+        with:
+          github-token: ${{ github.token }}
       - run: npm run build
