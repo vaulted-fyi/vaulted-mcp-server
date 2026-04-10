@@ -22,6 +22,10 @@
     "prepublishOnly": "npm run build",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
+    "release": "npm run release:patch",
+    "release:patch": "npm version patch && git push --follow-tags && gh release create v$(node -p \"require('./package.json').version\") --generate-notes",
+    "release:minor": "npm version minor && git push --follow-tags && gh release create v$(node -p \"require('./package.json').version\") --generate-notes",
+    "release:major": "npm version major && git push --follow-tags && gh release create v$(node -p \"require('./package.json').version\") --generate-notes",
     "prepare": "husky"
   },
   "lint-staged": {
