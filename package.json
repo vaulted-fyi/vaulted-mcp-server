@@ -1,7 +1,7 @@
 {
-  "name": "vaulted-mcp-server",
+  "name": "@vaulted/mcp-server",
   "version": "0.1.0",
-  "description": "MCP server for sharing secrets via Vaulted — zero-knowledge encryption",
+  "description": "Zero-knowledge encrypted secret sharing for AI agents via MCP",
   "type": "module",
   "main": "./dist/index.js",
   "bin": {
@@ -17,7 +17,9 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
     "validate": "npm run typecheck && npm run lint && npm run test",
+    "prepublishOnly": "npm run build",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "prepare": "husky"
@@ -33,14 +35,23 @@
   },
   "keywords": [
     "mcp",
+    "model-context-protocol",
     "secrets",
     "encryption",
     "vaulted",
-    "zero-knowledge"
+    "ai",
+    "claude",
+    "secret-sharing",
+    "zero-knowledge",
+    "e2e-encryption"
   ],
+  "homepage": "https://vaulted.fyi",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/vaulted-fyi/vaulted-mcp-server.git"
+    "url": "https://github.com/vaulted-fyi/vaulted-mcp-server.git"
+  },
+  "bugs": {
+    "url": "https://github.com/vaulted-fyi/vaulted-mcp-server/issues"
   },
   "license": "MIT",
   "engines": {
