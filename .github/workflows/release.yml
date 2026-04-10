@@ -5,7 +5,7 @@ on:
     types: [published]
 
 jobs:
-  integration-test:
+  verify:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -13,10 +13,11 @@ jobs:
         with:
           node-version: 22
       - run: npm ci
+      - run: npm run validate
       - run: npm run test:integration
 
   publish:
-    needs: integration-test
+    needs: verify
     runs-on: ubuntu-latest
     permissions:
       contents: read
