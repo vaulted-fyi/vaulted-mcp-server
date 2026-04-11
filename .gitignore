@@ -4,6 +4,7 @@ coverage/
 test-results/
 .env
 .env.*
+.envrc
 *.tgz
 .DS_Store
 .vscode/
