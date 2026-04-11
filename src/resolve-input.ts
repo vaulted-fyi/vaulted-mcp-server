@@ -78,7 +78,7 @@ async function resolveFile(filePath: string): Promise<ResolveInputResult> {
     return {
       success: false,
       error: errorResult(
-        "FILE_NOT_FOUND",
+        "FILE_READ_ERROR",
         `Unable to read file: '${filePath}'`,
         "Check the file path and permissions",
       ),
@@ -121,7 +121,7 @@ async function resolveDotenv(ref: string): Promise<ResolveInputResult> {
     return {
       success: false,
       error: errorResult(
-        "FILE_NOT_FOUND",
+        "FILE_READ_ERROR",
         `Unable to read dotenv file: '${parsed.filePath}'`,
         "Check the file path and permissions",
       ),
@@ -144,7 +144,7 @@ async function resolveDotenv(ref: string): Promise<ResolveInputResult> {
 }
 
 function parseDotenvReference(ref: string): { filePath: string; key: string } | null {
-  const colonIndex = ref.indexOf(":");
+  const colonIndex = ref.lastIndexOf(":");
   if (colonIndex === -1) return null;
   const filePath = ref.slice(0, colonIndex);
   const key = ref.slice(colonIndex + 1);

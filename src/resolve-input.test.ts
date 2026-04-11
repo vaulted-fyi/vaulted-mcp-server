@@ -85,6 +85,14 @@ describe("resolveInput", () => {
         expect(parseError(result).code).toBe("FILE_NOT_FOUND");
       }
     });
+
+    it("returns FILE_READ_ERROR when path exists but cannot be read as a file", async () => {
+      const result = await resolveInput(`file:${tempDir}`);
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(parseError(result).code).toBe("FILE_READ_ERROR");
+      }
+    });
   });
 
   describe("dotenv: prefix", () => {
@@ -118,6 +126,21 @@ describe("resolveInput", () => {
       expect(result.success).toBe(false);
       if (!result.success) {
         expect(parseError(result).code).toBe("INVALID_INPUT");
+      }
+    });
+
+    it("splits dotenv ref at the last colon so file paths can contain colons", async () => {
+      const envPathWithColon = join(tempDir, "config:local.env");
+      await writeFile(envPathWithColon, "API_KEY=abc123\n");
+      const result = await resolveInput(`dotenv:${envPathWithColon}:API_KEY`);
+      expect(result).toEqual({ success: true, value: "abc123" });
+    });
+
+    it("returns FILE_READ_ERROR when dotenv path exists but is not a readable file", async () => {
+      const result = await resolveInput(`dotenv:${tempDir}:DATABASE_URL`);
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(parseError(result).code).toBe("FILE_READ_ERROR");
       }
     });
   });
