@@ -20,7 +20,7 @@ vi.mock("../config.js", () => ({
   config: { baseUrl: "https://vaulted.fyi", allowedDirs: [] },
 }));
 
-import { createSecret } from "../api-client.js";
+import { createSecret, ApiError } from "../api-client.js";
 
 function parseResult(result: {
   content: Array<{ type: string; text: string }>;
@@ -113,6 +113,17 @@ describe("handleCreateSecret", () => {
     expect(createSecret).not.toHaveBeenCalled();
   });
 
+  it("returns INVALID_INPUT for empty passphrase", async () => {
+    const result = await handleCreateSecret({ content: "test", passphrase: "" });
+    const parsed = parseResult(result);
+
+    expect(parsed.success).toBe(false);
+    expect(parsed.error.code).toBe("INVALID_INPUT");
+    expect(parsed.error.message).toBe("Passphrase cannot be empty");
+    expect(result.isError).toBe(true);
+    expect(createSecret).not.toHaveBeenCalled();
+  });
+
   it("returns INVALID_INPUT for content exceeding 1000 characters", async () => {
     const result = await handleCreateSecret({ content: "x".repeat(1001) });
     const parsed = parseResult(result);
@@ -148,6 +159,23 @@ describe("handleCreateSecret", () => {
 
     expect(parsed.success).toBe(false);
     expect(parsed.error.code).toBe("API_UNREACHABLE");
+    expect(result.isError).toBe(true);
+  });
+
+  it("returns INVALID_INPUT with API error details on 400 responses", async () => {
+    vi.mocked(createSecret).mockRejectedValueOnce(
+      new ApiError("Vaulted API returned 400", 400, "INVALID_INPUT", { error: "Invalid ttl" }),
+    );
+
+    const result = await handleCreateSecret({ content: "test", expiry: "1h" });
+    const parsed = parseResult(result);
+
+    expect(parsed.success).toBe(false);
+    expect(parsed.error.code).toBe("INVALID_INPUT");
+    expect(parsed.error.message).toBe("Invalid ttl");
+    expect(parsed.error.suggestion).toBe(
+      "Check content length, max_views, and expiry values, then try again",
+    );
     expect(result.isError).toBe(true);
   });
 

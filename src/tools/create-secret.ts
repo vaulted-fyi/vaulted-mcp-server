@@ -40,6 +40,14 @@ export async function handleCreateSecret(params: {
     );
   }
 
+  if (params.passphrase !== undefined && params.passphrase.length === 0) {
+    return errorResult(
+      "INVALID_INPUT",
+      "Passphrase cannot be empty",
+      "Provide a non-empty passphrase, or omit it to create a secret without passphrase protection",
+    );
+  }
+
   const maxViews = params.max_views ? Number(params.max_views) : 1;
   if (!VALID_MAX_VIEWS.includes(maxViews as (typeof VALID_MAX_VIEWS)[number])) {
     return errorResult(
@@ -111,7 +119,25 @@ export async function handleCreateSecret(params: {
     );
   } catch (err) {
     if (err instanceof ApiError) {
-      return errorResult(err.code, err.message, "Check your network connection and try again");
+      if (err.code === "INVALID_INPUT") {
+        const apiMessage =
+          typeof err.body === "object" &&
+          err.body !== null &&
+          "error" in err.body &&
+          typeof err.body.error === "string"
+            ? err.body.error
+            : err.message;
+        return errorResult(
+          "INVALID_INPUT",
+          apiMessage,
+          "Check content length, max_views, and expiry values, then try again",
+        );
+      }
+      return errorResult(
+        "API_UNREACHABLE",
+        err.message,
+        "Check your network connection and try again",
+      );
     }
     return errorResult(
       "API_UNREACHABLE",
