@@ -1,6 +1,6 @@
 {
   "name": "@vaulted/mcp-server",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Zero-knowledge encrypted secret sharing for AI agents via MCP",
   "type": "module",
   "main": "./dist/index.js",
