@@ -192,6 +192,51 @@ describe("create_secret integration via MCP client", () => {
   });
 });
 
+describe("prompt registration", () => {
+  let client: InstanceType<typeof Client>;
+  let server: ReturnType<typeof createServer>;
+
+  beforeEach(async () => {
+    server = createServer();
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    client = new Client({ name: "test-client", version: "1.0.0" });
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+  });
+
+  afterEach(async () => {
+    await client.close();
+    await server.close();
+  });
+
+  it("lists share-secret with the expected description", async () => {
+    const { prompts } = await client.listPrompts();
+    const prompt = prompts.find((p) => p.name === "share-secret");
+    expect(prompt).toBeDefined();
+    expect(prompt?.description).toBe(
+      "Share a secret securely via an encrypted, self-destructing link",
+    );
+  });
+
+  it("share-secret takes no required arguments", async () => {
+    const { prompts } = await client.listPrompts();
+    const prompt = prompts.find((p) => p.name === "share-secret");
+    const required = (prompt?.arguments ?? []).filter((a) => a.required);
+    expect(required).toHaveLength(0);
+  });
+
+  it("getPrompt returns messages with non-empty text content", async () => {
+    const result = await client.getPrompt({ name: "share-secret" });
+    expect(result.messages.length).toBeGreaterThan(0);
+    const first = result.messages[0];
+    expect(first.role).toBe("user");
+    expect(first.content.type).toBe("text");
+    if (first.content.type === "text") {
+      expect(first.content.text.length).toBeGreaterThan(0);
+    }
+  });
+});
+
 describe("architectural boundary", () => {
   it("only imports @modelcontextprotocol/sdk in src/index.ts", async () => {
     const { readdir } = await import("node:fs/promises");
@@ -204,6 +249,8 @@ describe("architectural boundary", () => {
     const tsFiles = entries.filter(
       (f) => f.endsWith(".ts") && !f.endsWith(".test.ts") && f !== "index.ts",
     );
+
+    expect(tsFiles).toContain("prompts/share-secret.ts");
 
     for (const file of tsFiles) {
       const content = await readFile(resolve(srcDir, file), "utf-8");
