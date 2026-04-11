@@ -62,7 +62,8 @@
     "node": ">=18"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.29.0"
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@vaulted/crypto": "^1.0.0"
   },
   "devDependencies": {
     "@commitlint/cli": "^20.5.0",
