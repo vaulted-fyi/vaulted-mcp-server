@@ -235,10 +235,25 @@ describe("prompt registration", () => {
       expect(first.content.text.length).toBeGreaterThan(0);
     }
   });
+
+  // The MCP spec exposes two distinct descriptions for a prompt:
+  //   - prompts/list → the registerPrompt config description ("Share a secret securely …")
+  //   - prompts/get  → the GetPromptResult.description ("Step-by-step guide …")
+  // They are intentionally different; pin both so a refactor can't silently collapse them.
+  it("getPrompt round-trips the step-by-step description distinct from the list-level one", async () => {
+    const result = await client.getPrompt({ name: "share-secret" });
+    expect(result.description).toBe(
+      "Step-by-step guide to creating a secure, self-destructing secret link",
+    );
+
+    const { prompts } = await client.listPrompts();
+    const listed = prompts.find((p) => p.name === "share-secret");
+    expect(listed?.description).not.toBe(result.description);
+  });
 });
 
 describe("architectural boundary", () => {
-  it("only imports @modelcontextprotocol/sdk in src/index.ts", async () => {
+  it("only imports @modelcontextprotocol/sdk at runtime in src/index.ts", async () => {
     const { readdir } = await import("node:fs/promises");
     const { resolve, dirname } = await import("node:path");
     const { fileURLToPath } = await import("node:url");
@@ -252,9 +267,13 @@ describe("architectural boundary", () => {
 
     expect(tsFiles).toContain("prompts/share-secret.ts");
 
+    // Type-only imports are erased at compile time and carry no runtime dependency,
+    // so they don't violate the boundary. Block runtime imports only.
+    const runtimeSdkImport = /^\s*import\s+(?!type\s)[^;]*from\s+["']@modelcontextprotocol\/sdk/m;
+
     for (const file of tsFiles) {
       const content = await readFile(resolve(srcDir, file), "utf-8");
-      expect(content).not.toContain("@modelcontextprotocol/sdk");
+      expect(content).not.toMatch(runtimeSdkImport);
     }
   });
 });

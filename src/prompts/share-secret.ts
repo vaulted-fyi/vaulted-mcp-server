@@ -1,17 +1,9 @@
-type PromptMessage = {
-  role: "user" | "assistant";
-  content: {
-    type: "text";
-    text: string;
-  };
-};
+import type { GetPromptResult } from "@modelcontextprotocol/sdk/types.js";
 
-export type ShareSecretPromptResult = {
-  description: string;
-  messages: PromptMessage[];
-};
+export const SHARE_SECRET_PROMPT_DESCRIPTION =
+  "Step-by-step guide to creating a secure, self-destructing secret link";
 
-const PROMPT_TEXT = `I'd like to share a secret securely using Vaulted. Please help me create an encrypted, self-destructing link.
+export const SHARE_SECRET_PROMPT_TEXT = `I'd like to share a secret securely using Vaulted. Please help me create an encrypted, self-destructing link.
 
 Here's what I need to decide:
 
@@ -30,19 +22,19 @@ For sensitive values like API keys, passwords, or credentials, I recommend using
 
 - **Max views** (how many times the link can be opened before it self-destructs): 1, 3, 5, or 10 (default: 1)
 - **Expiry** (how long until the link expires): 1h, 2h, 6h, 12h, 24h, 3d, 7d, 14d, or 30d (default: 24h)
-- **Passphrase** (optional): Add an extra layer of protection — the recipient will need this passphrase to decrypt the secret
+- **Passphrase** (optional): Add an extra layer of protection — the recipient will need this passphrase to decrypt the secret. If you set one, share it with the recipient through a separate channel — it is never embedded in the link.
 
 Please ask me what I'd like to share and which options I prefer, then use the create_secret tool to create the secure link.`;
 
-export function shareSecretPrompt(): ShareSecretPromptResult {
+export function shareSecretPrompt(): GetPromptResult {
   return {
-    description: "Step-by-step guide to creating a secure, self-destructing secret link",
+    description: SHARE_SECRET_PROMPT_DESCRIPTION,
     messages: [
       {
         role: "user",
         content: {
           type: "text",
-          text: PROMPT_TEXT,
+          text: SHARE_SECRET_PROMPT_TEXT,
         },
       },
     ],
