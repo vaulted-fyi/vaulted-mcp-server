@@ -9,7 +9,9 @@ export type ErrorCode =
   | "DOTENV_KEY_NOT_FOUND"
   | "API_UNREACHABLE"
   | "INVALID_INPUT"
-  | "ENCRYPTION_FAILED";
+  | "ENCRYPTION_FAILED"
+  | "SECRET_NOT_FOUND"
+  | "API_ERROR";
 
 interface ToolResult {
   content: Array<{ type: "text"; text: string }>;
