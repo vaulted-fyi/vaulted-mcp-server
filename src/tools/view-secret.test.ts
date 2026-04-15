@@ -491,7 +491,7 @@ describe("handleViewSecret — file mode", () => {
     expect(result.content[0].text).not.toContain("file-plaintext");
   });
 
-  it("returns FILE_READ_ERROR when writeFile fails", async () => {
+  it("returns FILE_WRITE_ERROR when writeFile fails", async () => {
     mockWriteFile.mockRejectedValueOnce(new Error("EACCES: permission denied"));
 
     const result = await handleViewSecret({
@@ -502,7 +502,7 @@ describe("handleViewSecret — file mode", () => {
     const parsed = parseResult(result);
 
     expect(parsed.success).toBe(false);
-    expect(parsed.error.code).toBe("FILE_READ_ERROR");
+    expect(parsed.error.code).toBe("FILE_WRITE_ERROR");
     expect(parsed.error.message).toContain("/root/locked.txt");
     expect(result.isError).toBe(true);
   });

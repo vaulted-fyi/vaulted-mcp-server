@@ -39,19 +39,21 @@ export async function copyToClipboard(text: string): Promise<void> {
   }
 
   if (platform === "linux") {
+    let xclipErr: Error | undefined;
     try {
       await spawnAndPipe("xclip", ["-selection", "clipboard"], text);
       return;
-    } catch {
-      // fall through to xsel
+    } catch (err) {
+      xclipErr = err as Error;
     }
     try {
       await spawnAndPipe("xsel", ["--clipboard", "--input"], text);
       return;
-    } catch (err) {
+    } catch (xselErr) {
       throw new Error(
-        `No clipboard tool available. Install xclip or xsel. (${(err as Error).message})`,
-        { cause: err },
+        `No clipboard tool available. Install xclip or xsel. ` +
+          `xclip: ${xclipErr.message}; xsel: ${(xselErr as Error).message}`,
+        { cause: xselErr },
       );
     }
   }
@@ -59,7 +61,7 @@ export async function copyToClipboard(text: string): Promise<void> {
   if (platform === "win32") {
     return spawnAndPipe(
       "powershell.exe",
-      ["-noprofile", "-command", "$input | Set-Clipboard"],
+      ["-noprofile", "-command", "Set-Clipboard -Value $input"],
       text,
     );
   }

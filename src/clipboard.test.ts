@@ -59,6 +59,7 @@ describe("copyToClipboard — macOS", () => {
 
     expect(mockExecFile).toHaveBeenCalledOnce();
     expect(mockExecFile.mock.calls[0][0]).toBe("pbcopy");
+    expect(mockExecFile.mock.calls[0][1]).toEqual([]);
     expect(child._stdinChunks.join("")).toBe("super-secret");
   });
 
@@ -124,15 +125,27 @@ describe("copyToClipboard — Linux", () => {
     expect(xselChild._stdinChunks.join("")).toBe("fallback");
   });
 
-  it("rejects when neither xclip nor xsel works", async () => {
-    mockExecFile.mockImplementation(
-      (_cmd: string, _args: string[], cb: (err: Error | null) => void) => {
-        queueMicrotask(() => cb(new Error("not found")));
+  it("rejects when neither xclip nor xsel works, preserving both reasons", async () => {
+    mockExecFile
+      .mockImplementationOnce((_cmd: string, _args: string[], cb: (err: Error | null) => void) => {
+        queueMicrotask(() => cb(new Error("DISPLAY not set")));
         return makeFakeChild();
-      },
-    );
+      })
+      .mockImplementationOnce((_cmd: string, _args: string[], cb: (err: Error | null) => void) => {
+        queueMicrotask(() => cb(new Error("xsel: command not found")));
+        return makeFakeChild();
+      });
 
-    await expect(copyToClipboard("x")).rejects.toThrow(/xclip|xsel|clipboard/i);
+    try {
+      await copyToClipboard("x");
+      expect.fail("should have thrown");
+    } catch (err) {
+      const message = (err as Error).message;
+      expect(message).toContain("xclip");
+      expect(message).toContain("xsel");
+      expect(message).toContain("DISPLAY not set");
+      expect(message).toContain("command not found");
+    }
     expect(mockExecFile).toHaveBeenCalledTimes(2);
   });
 });
@@ -149,7 +162,7 @@ describe("copyToClipboard — Windows", () => {
     setPlatform(orig);
   });
 
-  it("spawns powershell.exe with Set-Clipboard and pipes to stdin", async () => {
+  it("spawns powershell.exe with Set-Clipboard -Value $input and pipes to stdin", async () => {
     const child = makeFakeChild();
     mockExecFile.mockImplementation(
       (_cmd: string, _args: string[], cb: (err: Error | null) => void) => {
@@ -162,8 +175,74 @@ describe("copyToClipboard — Windows", () => {
 
     expect(mockExecFile.mock.calls[0][0]).toBe("powershell.exe");
     const args = mockExecFile.mock.calls[0][1] as string[];
-    expect(args.join(" ")).toContain("Set-Clipboard");
+    expect(args).toEqual(["-noprofile", "-command", "Set-Clipboard -Value $input"]);
     expect(child._stdinChunks.join("")).toBe("win-secret");
+  });
+});
+
+describe("copyToClipboard — NFR10 (no stdout/stderr writes)", () => {
+  const orig = originalPlatform();
+
+  beforeEach(() => {
+    mockExecFile.mockReset();
+    setPlatform("darwin");
+  });
+
+  afterEach(() => {
+    setPlatform(orig);
+  });
+
+  it("never writes the secret to stdout or stderr during a successful copy", async () => {
+    const secret = "🔐-nfr10-stdout-stderr-leak-check";
+    const child = makeFakeChild();
+    mockExecFile.mockImplementation(
+      (_cmd: string, _args: string[], cb: (err: Error | null) => void) => {
+        queueMicrotask(() => cb(null));
+        return child;
+      },
+    );
+
+    const stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+
+    try {
+      await copyToClipboard(secret);
+    } finally {
+      stdoutSpy.mockRestore();
+      stderrSpy.mockRestore();
+    }
+
+    const stdoutBytes = stdoutSpy.mock.calls.map((c) => String(c[0])).join("");
+    const stderrBytes = stderrSpy.mock.calls.map((c) => String(c[0])).join("");
+
+    expect(stdoutBytes).not.toContain(secret);
+    expect(stderrBytes).not.toContain(secret);
+  });
+
+  it("never writes the secret to stdout or stderr even when the command fails", async () => {
+    const secret = "🔐-nfr10-fail-path";
+    mockExecFile.mockImplementation(
+      (_cmd: string, _args: string[], cb: (err: Error | null) => void) => {
+        queueMicrotask(() => cb(new Error("pbcopy not found")));
+        return makeFakeChild();
+      },
+    );
+
+    const stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+
+    try {
+      await copyToClipboard(secret).catch(() => undefined);
+    } finally {
+      stdoutSpy.mockRestore();
+      stderrSpy.mockRestore();
+    }
+
+    const stdoutBytes = stdoutSpy.mock.calls.map((c) => String(c[0])).join("");
+    const stderrBytes = stderrSpy.mock.calls.map((c) => String(c[0])).join("");
+
+    expect(stdoutBytes).not.toContain(secret);
+    expect(stderrBytes).not.toContain(secret);
   });
 });
 

@@ -176,7 +176,7 @@ export async function handleViewSecret(params: ViewSecretParams): Promise<Handle
       await writeFile(params.file_path as string, plaintext, "utf-8");
     } catch (err) {
       return errorResult(
-        "FILE_READ_ERROR",
+        "FILE_WRITE_ERROR",
         `Failed to write the secret to ${params.file_path}`,
         `${(err as Error).message}. Check the path is writable and try again.`,
       );

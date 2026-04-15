@@ -33,6 +33,16 @@ vi.mock("./api-client.js", () => ({
 const mockOpen = vi.hoisted(() => vi.fn());
 vi.mock("open", () => ({ default: mockOpen }));
 
+const { mockCopyToClipboard, mockWriteFile } = vi.hoisted(() => ({
+  mockCopyToClipboard: vi.fn(),
+  mockWriteFile: vi.fn(),
+}));
+vi.mock("./clipboard.js", () => ({ copyToClipboard: mockCopyToClipboard }));
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs/promises")>();
+  return { ...actual, writeFile: mockWriteFile };
+});
+
 vi.mock("@vaulted/crypto", async () => {
   const actual = await vi.importActual<typeof import("@vaulted/crypto")>("@vaulted/crypto");
   return actual;
@@ -260,6 +270,74 @@ describe("view_secret integration via MCP client", () => {
     expect(parsed.success).toBe(true);
     expect(parsed.data.mode).toBe("browser");
     expect(mockOpen).toHaveBeenCalledWith("https://vaulted.fyi/s/abc123#mykey");
+  });
+
+  it("executes clipboard mode end-to-end (encrypt → fetch → decrypt → copyToClipboard)", async () => {
+    const { generateKey, exportKey, encrypt } = await import("@vaulted/crypto");
+    const { retrieveSecret } = await import("./api-client.js");
+
+    const plaintext = "clipboard-e2e-secret";
+    const key = await generateKey();
+    const fragment = await exportKey(key);
+    const { ciphertext, iv } = await encrypt(plaintext, key);
+
+    vi.mocked(retrieveSecret).mockResolvedValueOnce({
+      ciphertext,
+      iv,
+      hasPassphrase: false,
+      viewsRemaining: 1,
+    });
+    mockCopyToClipboard.mockResolvedValueOnce(undefined);
+
+    const result = await client.callTool({
+      name: "view_secret",
+      arguments: {
+        url: `https://vaulted.fyi/s/test-id#${fragment}`,
+        output_mode: "clipboard",
+      },
+    });
+    const text = (result.content as Array<{ type: string; text: string }>)[0].text;
+    const parsed = JSON.parse(text);
+
+    expect(parsed.success).toBe(true);
+    expect(parsed.data.mode).toBe("clipboard");
+    expect(mockCopyToClipboard).toHaveBeenCalledWith(plaintext);
+    expect(text).not.toContain(plaintext);
+  });
+
+  it("executes file mode end-to-end (encrypt → fetch → decrypt → writeFile)", async () => {
+    const { generateKey, exportKey, encrypt } = await import("@vaulted/crypto");
+    const { retrieveSecret } = await import("./api-client.js");
+
+    const plaintext = "file-e2e-secret";
+    const key = await generateKey();
+    const fragment = await exportKey(key);
+    const { ciphertext, iv } = await encrypt(plaintext, key);
+
+    vi.mocked(retrieveSecret).mockResolvedValueOnce({
+      ciphertext,
+      iv,
+      hasPassphrase: false,
+      viewsRemaining: 1,
+    });
+    mockWriteFile.mockResolvedValueOnce(undefined);
+
+    const result = await client.callTool({
+      name: "view_secret",
+      arguments: {
+        url: `https://vaulted.fyi/s/test-id#${fragment}`,
+        output_mode: "file",
+        file_path: "/tmp/integration-test.txt",
+      },
+    });
+    const text = (result.content as Array<{ type: string; text: string }>)[0].text;
+    const parsed = JSON.parse(text);
+
+    expect(parsed.success).toBe(true);
+    expect(parsed.data.mode).toBe("file");
+    expect(parsed.data.filePath).toBe("/tmp/integration-test.txt");
+    expect(mockWriteFile).toHaveBeenCalledWith("/tmp/integration-test.txt", plaintext, "utf-8");
+    expect(text).not.toContain(plaintext);
   });
 });
 
