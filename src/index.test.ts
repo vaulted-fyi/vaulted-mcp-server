@@ -17,6 +17,7 @@ vi.mock("@modelcontextprotocol/sdk/server/stdio.js", () => {
 
 vi.mock("./api-client.js", () => ({
   createSecret: vi.fn().mockResolvedValue({ id: "test-id", statusToken: "test-token" }),
+  retrieveSecret: vi.fn(),
   ApiError: class ApiError extends Error {
     constructor(
       message: string,
@@ -28,6 +29,14 @@ vi.mock("./api-client.js", () => ({
     }
   },
 }));
+
+const mockOpen = vi.hoisted(() => vi.fn());
+vi.mock("open", () => ({ default: mockOpen }));
+
+vi.mock("@vaulted/crypto", async () => {
+  const actual = await vi.importActual<typeof import("@vaulted/crypto")>("@vaulted/crypto");
+  return actual;
+});
 
 vi.mock("./config.js", () => ({
   config: { baseUrl: "https://vaulted.fyi", allowedDirs: [] },
@@ -134,16 +143,6 @@ describe("placeholder handlers", () => {
     await server.close();
   });
 
-  it("view_secret returns 'not implemented yet'", async () => {
-    const result = await client.callTool({
-      name: "view_secret",
-      arguments: {},
-    });
-    const text = (result.content as Array<{ type: string; text: string }>)[0].text;
-    const parsed = JSON.parse(text);
-    expect(parsed).toEqual({ success: false, error: "not implemented yet" });
-  });
-
   it("check_status returns 'not implemented yet'", async () => {
     const result = await client.callTool({
       name: "check_status",
@@ -189,6 +188,78 @@ describe("create_secret integration via MCP client", () => {
       passphraseProtected: false,
     });
     expect(parsed.message).toContain("Secret created successfully");
+  });
+});
+
+describe("view_secret integration via MCP client", () => {
+  let client: InstanceType<typeof Client>;
+  let server: ReturnType<typeof createServer>;
+
+  beforeEach(async () => {
+    server = createServer();
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    client = new Client({ name: "test-client", version: "1.0.0" });
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+    mockOpen.mockReset();
+    mockOpen.mockResolvedValue(undefined);
+  });
+
+  afterEach(async () => {
+    await client.close();
+    await server.close();
+  });
+
+  it("appears in listTools with exactly the VIEW_SECRET_DESCRIPTION constant", async () => {
+    const { VIEW_SECRET_DESCRIPTION } = await import("./tools/view-secret.js");
+    const { tools } = await client.listTools();
+    const tool = tools.find((t) => t.name === "view_secret");
+    expect(tool?.description).toBe(VIEW_SECRET_DESCRIPTION);
+  });
+
+  it("executes direct mode via the MCP protocol end-to-end (encrypt → fetch → decrypt)", async () => {
+    const { generateKey, exportKey, encrypt } = await import("@vaulted/crypto");
+    const { retrieveSecret } = await import("./api-client.js");
+
+    const plaintext = "end-to-end-secret";
+    const key = await generateKey();
+    const fragment = await exportKey(key);
+    const { ciphertext, iv } = await encrypt(plaintext, key);
+
+    vi.mocked(retrieveSecret).mockResolvedValueOnce({
+      ciphertext,
+      iv,
+      hasPassphrase: false,
+      viewsRemaining: 1,
+    });
+
+    const result = await client.callTool({
+      name: "view_secret",
+      arguments: {
+        url: `https://vaulted.fyi/s/test-id#${fragment}`,
+        output_mode: "direct",
+      },
+    });
+    const text = (result.content as Array<{ type: string; text: string }>)[0].text;
+    const parsed = JSON.parse(text);
+
+    expect(parsed.success).toBe(true);
+    expect(parsed.data.mode).toBe("direct");
+    expect(parsed.data.content).toBe(plaintext);
+    expect(parsed.data.sensitive).toBe(true);
+    expect(mockOpen).not.toHaveBeenCalled();
+  });
+
+  it("executes browser mode via the MCP protocol end-to-end", async () => {
+    const result = await client.callTool({
+      name: "view_secret",
+      arguments: { url: "https://vaulted.fyi/s/abc123#mykey" },
+    });
+    const text = (result.content as Array<{ type: string; text: string }>)[0].text;
+    const parsed = JSON.parse(text);
+    expect(parsed.success).toBe(true);
+    expect(parsed.data.mode).toBe("browser");
+    expect(mockOpen).toHaveBeenCalledWith("https://vaulted.fyi/s/abc123#mykey");
   });
 });
 
