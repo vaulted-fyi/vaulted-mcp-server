@@ -50,14 +50,50 @@ export async function createSecret(params: CreateSecretParams): Promise<CreateSe
     }
 
     const code: ErrorCode = response.status >= 500 ? "API_UNREACHABLE" : "INVALID_INPUT";
-    throw new ApiError(
-      `Vaulted API returned ${response.status}`,
-      response.status,
-      code,
-      body,
-    );
+    throw new ApiError(`Vaulted API returned ${response.status}`, response.status, code, body);
   }
 
   const data = (await response.json()) as CreateSecretResult;
   return { id: data.id, statusToken: data.statusToken };
+}
+
+export interface RetrieveSecretResult {
+  ciphertext: string;
+  iv: string;
+  hasPassphrase: boolean;
+  viewsRemaining: number;
+}
+
+export async function retrieveSecret(id: string): Promise<RetrieveSecretResult> {
+  let response: Response;
+  try {
+    response = await fetch(`${config.baseUrl}/api/secrets/${id}`, {
+      method: "GET",
+    });
+  } catch {
+    throw new ApiError("Unable to reach the Vaulted API", 0, "API_UNREACHABLE");
+  }
+
+  if (!response.ok) {
+    let body: unknown;
+    try {
+      body = await response.json();
+    } catch {
+      body = await response.text().catch(() => null);
+    }
+    throw new ApiError(
+      `Vaulted API returned ${response.status}`,
+      response.status,
+      response.status === 404 ? "SECRET_NOT_FOUND" : "API_ERROR",
+      body,
+    );
+  }
+
+  const data = (await response.json()) as RetrieveSecretResult;
+  return {
+    ciphertext: data.ciphertext,
+    iv: data.iv,
+    hasPassphrase: data.hasPassphrase,
+    viewsRemaining: data.viewsRemaining,
+  };
 }
