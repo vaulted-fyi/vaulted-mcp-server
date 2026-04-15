@@ -33,6 +33,11 @@ vi.mock("./api-client.js", () => ({
 const mockOpen = vi.hoisted(() => vi.fn());
 vi.mock("open", () => ({ default: mockOpen }));
 
+vi.mock("@vaulted/crypto", async () => {
+  const actual = await vi.importActual<typeof import("@vaulted/crypto")>("@vaulted/crypto");
+  return actual;
+});
+
 vi.mock("./config.js", () => ({
   config: { baseUrl: "https://vaulted.fyi", allowedDirs: [] },
 }));
@@ -205,11 +210,44 @@ describe("view_secret integration via MCP client", () => {
     await server.close();
   });
 
-  it("appears in listTools with the expected description substring", async () => {
+  it("appears in listTools with exactly the VIEW_SECRET_DESCRIPTION constant", async () => {
+    const { VIEW_SECRET_DESCRIPTION } = await import("./tools/view-secret.js");
     const { tools } = await client.listTools();
     const tool = tools.find((t) => t.name === "view_secret");
-    expect(tool?.description).toContain("Retrieve and decrypt a secret");
-    expect(tool?.description).toContain("output_mode");
+    expect(tool?.description).toBe(VIEW_SECRET_DESCRIPTION);
+  });
+
+  it("executes direct mode via the MCP protocol end-to-end (encrypt → fetch → decrypt)", async () => {
+    const { generateKey, exportKey, encrypt } = await import("@vaulted/crypto");
+    const { retrieveSecret } = await import("./api-client.js");
+
+    const plaintext = "end-to-end-secret";
+    const key = await generateKey();
+    const fragment = await exportKey(key);
+    const { ciphertext, iv } = await encrypt(plaintext, key);
+
+    vi.mocked(retrieveSecret).mockResolvedValueOnce({
+      ciphertext,
+      iv,
+      hasPassphrase: false,
+      viewsRemaining: 1,
+    });
+
+    const result = await client.callTool({
+      name: "view_secret",
+      arguments: {
+        url: `https://vaulted.fyi/s/test-id#${fragment}`,
+        output_mode: "direct",
+      },
+    });
+    const text = (result.content as Array<{ type: string; text: string }>)[0].text;
+    const parsed = JSON.parse(text);
+
+    expect(parsed.success).toBe(true);
+    expect(parsed.data.mode).toBe("direct");
+    expect(parsed.data.content).toBe(plaintext);
+    expect(parsed.data.sensitive).toBe(true);
+    expect(mockOpen).not.toHaveBeenCalled();
   });
 
   it("executes browser mode via the MCP protocol end-to-end", async () => {

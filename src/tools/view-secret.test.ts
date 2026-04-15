@@ -233,6 +233,106 @@ describe("handleViewSecret — direct mode", () => {
   });
 });
 
+describe("handleViewSecret — browser mode error paths", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("returns friendly INVALID_INPUT when open() throws", async () => {
+    mockOpen.mockRejectedValueOnce(new Error("no display"));
+
+    const result = await handleViewSecret({
+      url: "https://vaulted.fyi/s/abc#k",
+      output_mode: "browser",
+    });
+    const parsed = parseResult(result);
+
+    expect(parsed.success).toBe(false);
+    expect(parsed.error.code).toBe("INVALID_INPUT");
+    expect(parsed.error.message.toLowerCase()).toContain("browser");
+    expect(result.isError).toBe(true);
+  });
+});
+
+describe("handleViewSecret — direct mode extra guards", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("returns INVALID_INPUT when passphrase secret fragment is missing the dot separator", async () => {
+    mockRetrieveSecret.mockResolvedValueOnce({
+      ciphertext: "ct",
+      iv: "iv",
+      hasPassphrase: true,
+      viewsRemaining: 1,
+    });
+
+    const result = await handleViewSecret({
+      url: "https://vaulted.fyi/s/abc#no-dot-here",
+      output_mode: "direct",
+      passphrase: "pw",
+    });
+    const parsed = parseResult(result);
+
+    expect(parsed.success).toBe(false);
+    expect(parsed.error.code).toBe("INVALID_INPUT");
+    expect(parsed.error.message.toLowerCase()).toContain("malformed");
+    expect(mockUnwrapKeyWithPassphrase).not.toHaveBeenCalled();
+  });
+
+  it("returns INVALID_INPUT when passphrase secret fragment has empty salt half", async () => {
+    mockRetrieveSecret.mockResolvedValueOnce({
+      ciphertext: "ct",
+      iv: "iv",
+      hasPassphrase: true,
+      viewsRemaining: 1,
+    });
+
+    const result = await handleViewSecret({
+      url: "https://vaulted.fyi/s/abc#wrapped.",
+      output_mode: "direct",
+      passphrase: "pw",
+    });
+    const parsed = parseResult(result);
+
+    expect(parsed.success).toBe(false);
+    expect(parsed.error.code).toBe("INVALID_INPUT");
+    expect(mockUnwrapKeyWithPassphrase).not.toHaveBeenCalled();
+  });
+
+  it("maps non-ApiError retrieveSecret failures to API_ERROR (not API_UNREACHABLE)", async () => {
+    mockRetrieveSecret.mockRejectedValueOnce(new TypeError("programming bug"));
+
+    const result = await handleViewSecret({
+      url: "https://vaulted.fyi/s/abc#k",
+      output_mode: "direct",
+    });
+    const parsed = parseResult(result);
+
+    expect(parsed.success).toBe(false);
+    expect(parsed.error.code).toBe("API_ERROR");
+  });
+
+  it("ENCRYPTION_FAILED message warns that a view may have been consumed", async () => {
+    mockRetrieveSecret.mockResolvedValueOnce({
+      ciphertext: "ct",
+      iv: "iv",
+      hasPassphrase: false,
+      viewsRemaining: 1,
+    });
+    mockImportKey.mockResolvedValueOnce("ck");
+    mockDecrypt.mockRejectedValueOnce(new Error("bad tag"));
+
+    const result = await handleViewSecret({
+      url: "https://vaulted.fyi/s/abc#k",
+      output_mode: "direct",
+    });
+    const parsed = parseResult(result);
+
+    expect(parsed.error.message.toLowerCase()).toContain("consumed");
+  });
+});
+
 describe("handleViewSecret — input validation", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -286,6 +386,38 @@ describe("handleViewSecret — input validation", () => {
 describe("handleViewSecret — NFR10 (no secret leakage)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  it("does NOT write key or plaintext to stdout/stderr during direct mode", async () => {
+    mockRetrieveSecret.mockResolvedValueOnce({
+      ciphertext: "ct",
+      iv: "iv",
+      hasPassphrase: false,
+      viewsRemaining: 1,
+    });
+    mockImportKey.mockResolvedValueOnce("ck");
+    mockDecrypt.mockResolvedValueOnce("the-plaintext-payload");
+
+    const stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+
+    try {
+      await handleViewSecret({
+        url: "https://vaulted.fyi/s/abc#super-secret-url-key",
+        output_mode: "direct",
+      });
+    } finally {
+      stdoutSpy.mockRestore();
+      stderrSpy.mockRestore();
+    }
+
+    const stdoutWrites = stdoutSpy.mock.calls.map((c) => String(c[0])).join("");
+    const stderrWrites = stderrSpy.mock.calls.map((c) => String(c[0])).join("");
+
+    expect(stdoutWrites).not.toContain("super-secret-url-key");
+    expect(stdoutWrites).not.toContain("the-plaintext-payload");
+    expect(stderrWrites).not.toContain("super-secret-url-key");
+    expect(stderrWrites).not.toContain("the-plaintext-payload");
   });
 
   it("does NOT include encryption_key in error messages", async () => {

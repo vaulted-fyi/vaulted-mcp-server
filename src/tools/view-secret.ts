@@ -95,7 +95,7 @@ export async function handleViewSecret(params: ViewSecretParams): Promise<Handle
       }
     }
     return errorResult(
-      "API_UNREACHABLE",
+      "API_ERROR",
       "Unexpected error retrieving the secret",
       "Try again. If the problem persists, open the URL in a browser.",
     );
@@ -107,6 +107,17 @@ export async function handleViewSecret(params: ViewSecretParams): Promise<Handle
       "This secret is passphrase-protected",
       "Provide the passphrase via the 'passphrase' parameter",
     );
+  }
+
+  if (apiResponse.hasPassphrase) {
+    const dotIdx = key.indexOf(".");
+    if (dotIdx <= 0 || dotIdx === key.length - 1) {
+      return errorResult(
+        "INVALID_INPUT",
+        "Passphrase-protected secret fragment is malformed",
+        "Expected fragment format 'wrappedKey.salt'. Re-copy the full URL from the sender.",
+      );
+    }
   }
 
   let plaintext: string;
@@ -122,7 +133,7 @@ export async function handleViewSecret(params: ViewSecretParams): Promise<Handle
   } catch {
     return errorResult(
       "ENCRYPTION_FAILED",
-      "Failed to decrypt the secret",
+      "Failed to decrypt the secret (this attempt may have consumed a view)",
       params.passphrase
         ? "Check that the passphrase is correct and the URL is complete"
         : "Check that the URL is complete, including the fragment after '#'",
