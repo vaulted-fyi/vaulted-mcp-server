@@ -1,9 +1,11 @@
+import { writeFile } from "node:fs/promises";
 import open from "open";
 import { importKey, decrypt, unwrapKeyWithPassphrase } from "@vaulted/crypto";
 import { retrieveSecret, ApiError } from "../api-client.js";
 import { successResult, errorResult } from "../errors.js";
 import { config } from "../config.js";
 import { parseVaultedUrl } from "../url-parser.js";
+import { copyToClipboard } from "../clipboard.js";
 
 export const VIEW_SECRET_DESCRIPTION =
   "Retrieve and decrypt a secret from a Vaulted secure link. The secret may have view limits and will be destroyed after the maximum views are reached. By default opens in the browser for security — use output_mode to copy to clipboard, save to file, or return directly.";
@@ -43,11 +45,13 @@ function resolveIdAndKey(params: ViewSecretParams): { id: string; key: string } 
 }
 
 export async function handleViewSecret(params: ViewSecretParams): Promise<HandlerResult> {
-  if (params.output_mode === "clipboard" || params.output_mode === "file") {
+  const mode = params.output_mode ?? "browser";
+
+  if (mode === "file" && !params.file_path) {
     return errorResult(
       "INVALID_INPUT",
-      `${params.output_mode} output mode is not yet supported`,
-      "Use browser (default) or direct mode",
+      "file_path is required when output_mode is 'file'",
+      "Provide file_path, or use output_mode 'browser', 'direct', or 'clipboard'",
     );
   }
 
@@ -55,7 +59,6 @@ export async function handleViewSecret(params: ViewSecretParams): Promise<Handle
   if ("content" in resolved) return resolved;
 
   const { id, key } = resolved;
-  const mode = params.output_mode ?? "browser";
 
   if (mode === "browser") {
     const fullUrl = `${config.baseUrl}/s/${id}#${key}`;
@@ -140,13 +143,57 @@ export async function handleViewSecret(params: ViewSecretParams): Promise<Handle
     );
   }
 
-  return successResult(
-    {
-      mode: "direct",
-      content: plaintext,
-      sensitive: true,
-      viewsRemaining: apiResponse.viewsRemaining,
-    },
-    "Secret retrieved and decrypted successfully. Treat the content as sensitive.",
+  if (mode === "direct") {
+    return successResult(
+      {
+        mode: "direct",
+        content: plaintext,
+        sensitive: true,
+        viewsRemaining: apiResponse.viewsRemaining,
+      },
+      "Secret retrieved and decrypted successfully. Treat the content as sensitive.",
+    );
+  }
+
+  if (mode === "clipboard") {
+    try {
+      await copyToClipboard(plaintext);
+    } catch (err) {
+      return errorResult(
+        "INVALID_INPUT",
+        "Failed to copy the secret to the clipboard",
+        `${(err as Error).message}. Try output_mode 'browser', 'direct', or 'file' instead.`,
+      );
+    }
+    return successResult(
+      { mode: "clipboard", viewsRemaining: apiResponse.viewsRemaining },
+      "Secret copied to clipboard. Paste it where needed — the content is not included in this response.",
+    );
+  }
+
+  if (mode === "file") {
+    try {
+      await writeFile(params.file_path as string, plaintext, "utf-8");
+    } catch (err) {
+      return errorResult(
+        "FILE_READ_ERROR",
+        `Failed to write the secret to ${params.file_path}`,
+        `${(err as Error).message}. Check the path is writable and try again.`,
+      );
+    }
+    return successResult(
+      {
+        mode: "file",
+        filePath: params.file_path,
+        viewsRemaining: apiResponse.viewsRemaining,
+      },
+      `Secret saved to ${params.file_path}. The content is not included in this response.`,
+    );
+  }
+
+  return errorResult(
+    "INVALID_INPUT",
+    `Unsupported output_mode: ${mode}`,
+    "Use one of: browser, direct, clipboard, file",
   );
 }
