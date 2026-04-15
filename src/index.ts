@@ -5,6 +5,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod/v4";
 import { handleCreateSecret } from "./tools/create-secret.js";
+import { shareSecretPrompt } from "./prompts/share-secret.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -119,6 +120,15 @@ export function createServer(): McpServer {
         },
       ],
     }),
+  );
+
+  server.registerPrompt(
+    "share-secret",
+    {
+      title: "Share Secret",
+      description: "Share a secret securely via an encrypted, self-destructing link",
+    },
+    () => shareSecretPrompt(),
   );
 
   return server;

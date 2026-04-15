@@ -192,8 +192,68 @@ describe("create_secret integration via MCP client", () => {
   });
 });
 
+describe("prompt registration", () => {
+  let client: InstanceType<typeof Client>;
+  let server: ReturnType<typeof createServer>;
+
+  beforeEach(async () => {
+    server = createServer();
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    client = new Client({ name: "test-client", version: "1.0.0" });
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+  });
+
+  afterEach(async () => {
+    await client.close();
+    await server.close();
+  });
+
+  it("lists share-secret with the expected description", async () => {
+    const { prompts } = await client.listPrompts();
+    const prompt = prompts.find((p) => p.name === "share-secret");
+    expect(prompt).toBeDefined();
+    expect(prompt?.description).toBe(
+      "Share a secret securely via an encrypted, self-destructing link",
+    );
+  });
+
+  it("share-secret takes no required arguments", async () => {
+    const { prompts } = await client.listPrompts();
+    const prompt = prompts.find((p) => p.name === "share-secret");
+    const required = (prompt?.arguments ?? []).filter((a) => a.required);
+    expect(required).toHaveLength(0);
+  });
+
+  it("getPrompt returns messages with non-empty text content", async () => {
+    const result = await client.getPrompt({ name: "share-secret" });
+    expect(result.messages.length).toBeGreaterThan(0);
+    const first = result.messages[0];
+    expect(first.role).toBe("user");
+    expect(first.content.type).toBe("text");
+    if (first.content.type === "text") {
+      expect(first.content.text.length).toBeGreaterThan(0);
+    }
+  });
+
+  // The MCP spec exposes two distinct descriptions for a prompt:
+  //   - prompts/list → the registerPrompt config description ("Share a secret securely …")
+  //   - prompts/get  → the GetPromptResult.description ("Step-by-step guide …")
+  // They are intentionally different; pin both so a refactor can't silently collapse them.
+  it("getPrompt round-trips the step-by-step description distinct from the list-level one", async () => {
+    const result = await client.getPrompt({ name: "share-secret" });
+    expect(result.description).toBe(
+      "Step-by-step guide to creating a secure, self-destructing secret link",
+    );
+
+    const { prompts } = await client.listPrompts();
+    const listed = prompts.find((p) => p.name === "share-secret");
+    expect(listed?.description).not.toBe(result.description);
+  });
+});
+
 describe("architectural boundary", () => {
-  it("only imports @modelcontextprotocol/sdk in src/index.ts", async () => {
+  it("only imports @modelcontextprotocol/sdk at runtime in src/index.ts", async () => {
     const { readdir } = await import("node:fs/promises");
     const { resolve, dirname } = await import("node:path");
     const { fileURLToPath } = await import("node:url");
@@ -205,9 +265,15 @@ describe("architectural boundary", () => {
       (f) => f.endsWith(".ts") && !f.endsWith(".test.ts") && f !== "index.ts",
     );
 
+    expect(tsFiles).toContain("prompts/share-secret.ts");
+
+    // Type-only imports are erased at compile time and carry no runtime dependency,
+    // so they don't violate the boundary. Block runtime imports only.
+    const runtimeSdkImport = /^\s*import\s+(?!type\s)[^;]*from\s+["']@modelcontextprotocol\/sdk/m;
+
     for (const file of tsFiles) {
       const content = await readFile(resolve(srcDir, file), "utf-8");
-      expect(content).not.toContain("@modelcontextprotocol/sdk");
+      expect(content).not.toMatch(runtimeSdkImport);
     }
   });
 });
