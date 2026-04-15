@@ -1,11 +1,20 @@
-const { mockOpen, mockImportKey, mockDecrypt, mockUnwrapKeyWithPassphrase, mockRetrieveSecret } =
-  vi.hoisted(() => ({
-    mockOpen: vi.fn(),
-    mockImportKey: vi.fn(),
-    mockDecrypt: vi.fn(),
-    mockUnwrapKeyWithPassphrase: vi.fn(),
-    mockRetrieveSecret: vi.fn(),
-  }));
+const {
+  mockOpen,
+  mockImportKey,
+  mockDecrypt,
+  mockUnwrapKeyWithPassphrase,
+  mockRetrieveSecret,
+  mockCopyToClipboard,
+  mockWriteFile,
+} = vi.hoisted(() => ({
+  mockOpen: vi.fn(),
+  mockImportKey: vi.fn(),
+  mockDecrypt: vi.fn(),
+  mockUnwrapKeyWithPassphrase: vi.fn(),
+  mockRetrieveSecret: vi.fn(),
+  mockCopyToClipboard: vi.fn(),
+  mockWriteFile: vi.fn(),
+}));
 
 vi.mock("open", () => ({ default: mockOpen }));
 
@@ -28,6 +37,14 @@ vi.mock("../api-client.js", () => ({
       this.name = "ApiError";
     }
   },
+}));
+
+vi.mock("../clipboard.js", () => ({
+  copyToClipboard: mockCopyToClipboard,
+}));
+
+vi.mock("node:fs/promises", () => ({
+  writeFile: mockWriteFile,
 }));
 
 vi.mock("../config.js", () => ({
@@ -361,18 +378,7 @@ describe("handleViewSecret — input validation", () => {
     expect(parsed.error.code).toBe("INVALID_INPUT");
   });
 
-  it("returns INVALID_INPUT for output_mode='clipboard' with 'use browser or direct' suggestion", async () => {
-    const result = await handleViewSecret({
-      url: "https://vaulted.fyi/s/abc#k",
-      output_mode: "clipboard",
-    });
-    const parsed = parseResult(result);
-    expect(parsed.success).toBe(false);
-    expect(parsed.error.code).toBe("INVALID_INPUT");
-    expect(parsed.error.suggestion.toLowerCase()).toContain("browser");
-  });
-
-  it("returns INVALID_INPUT for output_mode='file'", async () => {
+  it("returns INVALID_INPUT when output_mode='file' and file_path is missing", async () => {
     const result = await handleViewSecret({
       url: "https://vaulted.fyi/s/abc#k",
       output_mode: "file",
@@ -380,6 +386,157 @@ describe("handleViewSecret — input validation", () => {
     const parsed = parseResult(result);
     expect(parsed.success).toBe(false);
     expect(parsed.error.code).toBe("INVALID_INPUT");
+    expect(parsed.error.message.toLowerCase()).toContain("file_path");
+    expect(mockRetrieveSecret).not.toHaveBeenCalled();
+  });
+});
+
+describe("handleViewSecret — clipboard mode", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockRetrieveSecret.mockResolvedValue({
+      ciphertext: "ct",
+      iv: "iv",
+      hasPassphrase: false,
+      viewsRemaining: 2,
+    });
+    mockImportKey.mockResolvedValue("ck");
+    mockDecrypt.mockResolvedValue("clipboard-plaintext");
+  });
+
+  it("decrypts and pipes plaintext to copyToClipboard; response omits content", async () => {
+    mockCopyToClipboard.mockResolvedValueOnce(undefined);
+
+    const result = await handleViewSecret({
+      url: "https://vaulted.fyi/s/abc#mykey",
+      output_mode: "clipboard",
+    });
+    const parsed = parseResult(result);
+
+    expect(mockCopyToClipboard).toHaveBeenCalledWith("clipboard-plaintext");
+    expect(parsed.success).toBe(true);
+    expect(parsed.data.mode).toBe("clipboard");
+    expect(parsed.data.viewsRemaining).toBe(2);
+    expect(result.content[0].text).not.toContain("clipboard-plaintext");
+  });
+
+  it("returns INVALID_INPUT with suggestion when clipboard copy fails", async () => {
+    mockCopyToClipboard.mockRejectedValueOnce(new Error("no xclip installed"));
+
+    const result = await handleViewSecret({
+      url: "https://vaulted.fyi/s/abc#mykey",
+      output_mode: "clipboard",
+    });
+    const parsed = parseResult(result);
+
+    expect(parsed.success).toBe(false);
+    expect(parsed.error.code).toBe("INVALID_INPUT");
+    expect(parsed.error.suggestion.toLowerCase()).toMatch(/browser|direct|file/);
+    expect(result.isError).toBe(true);
+  });
+
+  it("forwards passphrase to unwrapKeyWithPassphrase for passphrase-protected secrets", async () => {
+    mockRetrieveSecret.mockResolvedValueOnce({
+      ciphertext: "ct",
+      iv: "iv",
+      hasPassphrase: true,
+      viewsRemaining: 1,
+    });
+    mockUnwrapKeyWithPassphrase.mockResolvedValueOnce("unwrapped");
+    mockDecrypt.mockResolvedValueOnce("secret-w-passphrase");
+    mockCopyToClipboard.mockResolvedValueOnce(undefined);
+
+    const result = await handleViewSecret({
+      url: "https://vaulted.fyi/s/abc#wrapped.salt",
+      output_mode: "clipboard",
+      passphrase: "pw",
+    });
+    const parsed = parseResult(result);
+
+    expect(mockUnwrapKeyWithPassphrase).toHaveBeenCalledWith("wrapped", "salt", "pw");
+    expect(mockCopyToClipboard).toHaveBeenCalledWith("secret-w-passphrase");
+    expect(parsed.success).toBe(true);
+    expect(result.content[0].text).not.toContain("secret-w-passphrase");
+  });
+});
+
+describe("handleViewSecret — file mode", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockRetrieveSecret.mockResolvedValue({
+      ciphertext: "ct",
+      iv: "iv",
+      hasPassphrase: false,
+      viewsRemaining: 3,
+    });
+    mockImportKey.mockResolvedValue("ck");
+    mockDecrypt.mockResolvedValue("file-plaintext");
+  });
+
+  it("writes plaintext to file_path via node:fs/promises writeFile; response omits content", async () => {
+    mockWriteFile.mockResolvedValueOnce(undefined);
+
+    const result = await handleViewSecret({
+      url: "https://vaulted.fyi/s/abc#mykey",
+      output_mode: "file",
+      file_path: "/tmp/secret.txt",
+    });
+    const parsed = parseResult(result);
+
+    expect(mockWriteFile).toHaveBeenCalledWith("/tmp/secret.txt", "file-plaintext", "utf-8");
+    expect(parsed.success).toBe(true);
+    expect(parsed.data.mode).toBe("file");
+    expect(parsed.data.filePath).toBe("/tmp/secret.txt");
+    expect(parsed.message).toContain("/tmp/secret.txt");
+    expect(result.content[0].text).not.toContain("file-plaintext");
+  });
+
+  it("returns FILE_WRITE_ERROR when writeFile fails", async () => {
+    mockWriteFile.mockRejectedValueOnce(new Error("EACCES: permission denied"));
+
+    const result = await handleViewSecret({
+      url: "https://vaulted.fyi/s/abc#mykey",
+      output_mode: "file",
+      file_path: "/root/locked.txt",
+    });
+    const parsed = parseResult(result);
+
+    expect(parsed.success).toBe(false);
+    expect(parsed.error.code).toBe("FILE_WRITE_ERROR");
+    expect(parsed.error.message).toContain("/root/locked.txt");
+    expect(result.isError).toBe(true);
+  });
+
+  it("forwards passphrase for passphrase-protected file-mode secrets", async () => {
+    mockRetrieveSecret.mockResolvedValueOnce({
+      ciphertext: "ct",
+      iv: "iv",
+      hasPassphrase: true,
+      viewsRemaining: 1,
+    });
+    mockUnwrapKeyWithPassphrase.mockResolvedValueOnce("unwrapped");
+    mockDecrypt.mockResolvedValueOnce("pf-payload");
+    mockWriteFile.mockResolvedValueOnce(undefined);
+
+    await handleViewSecret({
+      url: "https://vaulted.fyi/s/abc#wrapped.salt",
+      output_mode: "file",
+      file_path: "/tmp/out.txt",
+      passphrase: "pw",
+    });
+
+    expect(mockUnwrapKeyWithPassphrase).toHaveBeenCalledWith("wrapped", "salt", "pw");
+    expect(mockWriteFile).toHaveBeenCalledWith("/tmp/out.txt", "pf-payload", "utf-8");
+  });
+
+  it("does NOT call writeFile when file_path is missing (validation runs first)", async () => {
+    await handleViewSecret({
+      url: "https://vaulted.fyi/s/abc#mykey",
+      output_mode: "file",
+    });
+
+    expect(mockWriteFile).not.toHaveBeenCalled();
+    expect(mockRetrieveSecret).not.toHaveBeenCalled();
   });
 });
 
