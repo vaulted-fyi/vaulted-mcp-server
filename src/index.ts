@@ -5,6 +5,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod/v4";
 import { handleCreateSecret } from "./tools/create-secret.js";
+import { handleViewSecret, VIEW_SECRET_DESCRIPTION } from "./tools/view-secret.js";
 import { shareSecretPrompt } from "./prompts/share-secret.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -63,15 +64,33 @@ export function createServer(): McpServer {
     "view_secret",
     {
       title: "View Secret",
-      description:
-        "Retrieve and decrypt a secret from a Vaulted secure link. The secret may have view limits and will be destroyed after the maximum views are reached. By default opens in the browser for security — use output_mode to copy to clipboard, save to file, or return directly.",
+      description: VIEW_SECRET_DESCRIPTION,
       inputSchema: {
-        url: z.string().optional(),
-        secret_id: z.string().optional(),
-        encryption_key: z.string().optional(),
-        output_mode: z.enum(["browser", "clipboard", "file", "direct"]).optional(),
-        passphrase: z.string().optional(),
-        file_path: z.string().optional(),
+        url: z
+          .string()
+          .optional()
+          .describe(
+            "Full Vaulted URL (e.g., https://vaulted.fyi/s/abc123#key). Preferred over separate ID + key.",
+          ),
+        secret_id: z
+          .string()
+          .optional()
+          .describe("Secret ID (alternative to URL). Must be paired with encryption_key."),
+        encryption_key: z
+          .string()
+          .optional()
+          .describe("Encryption key (alternative to URL). Must be paired with secret_id."),
+        output_mode: z
+          .enum(["browser", "clipboard", "file", "direct"])
+          .optional()
+          .describe(
+            "How to deliver the secret. browser (default): opens in your browser, no decryption in agent. direct: returns decrypted content in the response. clipboard/file: coming soon.",
+          ),
+        passphrase: z.string().optional().describe("Passphrase for passphrase-protected secrets."),
+        file_path: z
+          .string()
+          .optional()
+          .describe('File path for file output mode (required when output_mode is "file").'),
       },
       annotations: {
         readOnlyHint: false,
@@ -79,17 +98,7 @@ export function createServer(): McpServer {
         idempotentHint: false,
       },
     },
-    async () => ({
-      content: [
-        {
-          type: "text" as const,
-          text: JSON.stringify({
-            success: false,
-            error: "not implemented yet",
-          }),
-        },
-      ],
-    }),
+    async (params) => handleViewSecret(params),
   );
 
   server.registerTool(

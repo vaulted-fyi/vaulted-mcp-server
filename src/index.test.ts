@@ -17,6 +17,7 @@ vi.mock("@modelcontextprotocol/sdk/server/stdio.js", () => {
 
 vi.mock("./api-client.js", () => ({
   createSecret: vi.fn().mockResolvedValue({ id: "test-id", statusToken: "test-token" }),
+  retrieveSecret: vi.fn(),
   ApiError: class ApiError extends Error {
     constructor(
       message: string,
@@ -28,6 +29,9 @@ vi.mock("./api-client.js", () => ({
     }
   },
 }));
+
+const mockOpen = vi.hoisted(() => vi.fn());
+vi.mock("open", () => ({ default: mockOpen }));
 
 vi.mock("./config.js", () => ({
   config: { baseUrl: "https://vaulted.fyi", allowedDirs: [] },
@@ -134,16 +138,6 @@ describe("placeholder handlers", () => {
     await server.close();
   });
 
-  it("view_secret returns 'not implemented yet'", async () => {
-    const result = await client.callTool({
-      name: "view_secret",
-      arguments: {},
-    });
-    const text = (result.content as Array<{ type: string; text: string }>)[0].text;
-    const parsed = JSON.parse(text);
-    expect(parsed).toEqual({ success: false, error: "not implemented yet" });
-  });
-
   it("check_status returns 'not implemented yet'", async () => {
     const result = await client.callTool({
       name: "check_status",
@@ -189,6 +183,45 @@ describe("create_secret integration via MCP client", () => {
       passphraseProtected: false,
     });
     expect(parsed.message).toContain("Secret created successfully");
+  });
+});
+
+describe("view_secret integration via MCP client", () => {
+  let client: InstanceType<typeof Client>;
+  let server: ReturnType<typeof createServer>;
+
+  beforeEach(async () => {
+    server = createServer();
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    client = new Client({ name: "test-client", version: "1.0.0" });
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+    mockOpen.mockReset();
+    mockOpen.mockResolvedValue(undefined);
+  });
+
+  afterEach(async () => {
+    await client.close();
+    await server.close();
+  });
+
+  it("appears in listTools with the expected description substring", async () => {
+    const { tools } = await client.listTools();
+    const tool = tools.find((t) => t.name === "view_secret");
+    expect(tool?.description).toContain("Retrieve and decrypt a secret");
+    expect(tool?.description).toContain("output_mode");
+  });
+
+  it("executes browser mode via the MCP protocol end-to-end", async () => {
+    const result = await client.callTool({
+      name: "view_secret",
+      arguments: { url: "https://vaulted.fyi/s/abc123#mykey" },
+    });
+    const text = (result.content as Array<{ type: string; text: string }>)[0].text;
+    const parsed = JSON.parse(text);
+    expect(parsed.success).toBe(true);
+    expect(parsed.data.mode).toBe("browser");
+    expect(mockOpen).toHaveBeenCalledWith("https://vaulted.fyi/s/abc123#mykey");
   });
 });
 
