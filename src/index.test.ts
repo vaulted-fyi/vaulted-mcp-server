@@ -23,6 +23,7 @@ vi.mock("./api-client.js", () => ({
       message: string,
       public readonly status: number,
       public readonly code: string,
+      public readonly body?: unknown,
     ) {
       super(message);
       this.name = "ApiError";
@@ -338,6 +339,145 @@ describe("view_secret integration via MCP client", () => {
     expect(parsed.data.filePath).toBe("/tmp/integration-test.txt");
     expect(mockWriteFile).toHaveBeenCalledWith("/tmp/integration-test.txt", plaintext, "utf-8");
     expect(text).not.toContain(plaintext);
+  });
+});
+
+describe("view_secret passphrase round-trip via MCP client", () => {
+  let client: InstanceType<typeof Client>;
+  let server: ReturnType<typeof createServer>;
+
+  beforeEach(async () => {
+    server = createServer();
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    client = new Client({ name: "test-client", version: "1.0.0" });
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+    mockOpen.mockReset();
+    mockOpen.mockResolvedValue(undefined);
+  });
+
+  afterEach(async () => {
+    await client.close();
+    await server.close();
+  });
+
+  async function createPassphraseSecretAndCaptureUrl(
+    plaintext: string,
+    passphrase: string,
+  ): Promise<{ url: string; ciphertext: string; iv: string }> {
+    const { createSecret } = await import("./api-client.js");
+    const createMock = vi.mocked(createSecret);
+    createMock.mockResolvedValueOnce({ id: "round-trip-id", statusToken: "tok" });
+
+    const createResult = await client.callTool({
+      name: "create_secret",
+      arguments: { content: plaintext, passphrase },
+    });
+    const createParsed = JSON.parse(
+      (createResult.content as Array<{ type: string; text: string }>)[0].text,
+    );
+    expect(createParsed.success).toBe(true);
+    expect(createParsed.data.passphraseProtected).toBe(true);
+
+    const callArgs = createMock.mock.calls.at(-1)?.[0];
+    if (!callArgs) throw new Error("createSecret was not called");
+    expect(callArgs.hasPassphrase).toBe(true);
+
+    return {
+      url: createParsed.data.url as string,
+      ciphertext: callArgs.ciphertext,
+      iv: callArgs.iv,
+    };
+  }
+
+  it("decrypts a passphrase-protected secret end-to-end with the correct passphrase", async () => {
+    const plaintext = "round-trip-passphrase-secret";
+    const passphrase = "correct horse battery staple";
+
+    const { url, ciphertext, iv } = await createPassphraseSecretAndCaptureUrl(
+      plaintext,
+      passphrase,
+    );
+
+    const { retrieveSecret } = await import("./api-client.js");
+    vi.mocked(retrieveSecret).mockResolvedValueOnce({
+      ciphertext,
+      iv,
+      hasPassphrase: true,
+      viewsRemaining: 1,
+    });
+
+    const viewResult = await client.callTool({
+      name: "view_secret",
+      arguments: { url, output_mode: "direct", passphrase },
+    });
+    const parsed = JSON.parse(
+      (viewResult.content as Array<{ type: string; text: string }>)[0].text,
+    );
+
+    expect(parsed.success).toBe(true);
+    expect(parsed.data.mode).toBe("direct");
+    expect(parsed.data.content).toBe(plaintext);
+  });
+
+  it("returns PASSPHRASE_REQUIRED when the passphrase parameter is omitted", async () => {
+    const { url, ciphertext, iv } = await createPassphraseSecretAndCaptureUrl(
+      "needs-a-passphrase",
+      "secret-pw",
+    );
+
+    const { retrieveSecret } = await import("./api-client.js");
+    vi.mocked(retrieveSecret).mockResolvedValueOnce({
+      ciphertext,
+      iv,
+      hasPassphrase: true,
+      viewsRemaining: 1,
+    });
+
+    const viewResult = await client.callTool({
+      name: "view_secret",
+      arguments: { url, output_mode: "direct" },
+    });
+    const parsed = JSON.parse(
+      (viewResult.content as Array<{ type: string; text: string }>)[0].text,
+    );
+
+    expect(parsed.success).toBe(false);
+    expect(parsed.error.code).toBe("PASSPHRASE_REQUIRED");
+    expect(parsed.error.suggestion).toBe(
+      "This secret is passphrase-protected. Provide the passphrase and try again.",
+    );
+    expect(viewResult.isError).toBe(true);
+  });
+
+  it("returns ENCRYPTION_FAILED when the wrong passphrase is provided", async () => {
+    const { url, ciphertext, iv } = await createPassphraseSecretAndCaptureUrl(
+      "guarded-payload",
+      "the-real-passphrase",
+    );
+
+    const { retrieveSecret } = await import("./api-client.js");
+    vi.mocked(retrieveSecret).mockResolvedValueOnce({
+      ciphertext,
+      iv,
+      hasPassphrase: true,
+      viewsRemaining: 1,
+    });
+
+    const viewResult = await client.callTool({
+      name: "view_secret",
+      arguments: { url, output_mode: "direct", passphrase: "definitely-wrong" },
+    });
+    const parsed = JSON.parse(
+      (viewResult.content as Array<{ type: string; text: string }>)[0].text,
+    );
+
+    expect(parsed.success).toBe(false);
+    expect(parsed.error.code).toBe("ENCRYPTION_FAILED");
+    expect(parsed.error.suggestion).toBe(
+      "The passphrase may be incorrect. Try again or ask the sender.",
+    );
+    expect(viewResult.isError).toBe(true);
   });
 });
 
