@@ -44,11 +44,6 @@ vi.mock("node:fs/promises", async (importOriginal) => {
   return { ...actual, writeFile: mockWriteFile };
 });
 
-vi.mock("@vaulted/crypto", async () => {
-  const actual = await vi.importActual<typeof import("@vaulted/crypto")>("@vaulted/crypto");
-  return actual;
-});
-
 vi.mock("./config.js", () => ({
   config: { baseUrl: "https://vaulted.fyi", allowedDirs: [] },
 }));
@@ -382,6 +377,14 @@ describe("view_secret passphrase round-trip via MCP client", () => {
     const callArgs = createMock.mock.calls.at(-1)?.[0];
     if (!callArgs) throw new Error("createSecret was not called");
     expect(callArgs.hasPassphrase).toBe(true);
+    expect(callArgs.ciphertext).toEqual(expect.any(String));
+    expect(callArgs.ciphertext.length).toBeGreaterThan(0);
+    expect(callArgs.iv).toEqual(expect.any(String));
+    expect(callArgs.iv.length).toBeGreaterThan(0);
+
+    const fragment = (createParsed.data.url as string).split("#")[1];
+    // Fragment format for passphrase-protected secrets: `${wrappedKey}.${salt}` with both halves non-empty.
+    expect(fragment).toMatch(/^[^.]+\.[^.]+$/);
 
     return {
       url: createParsed.data.url as string,
