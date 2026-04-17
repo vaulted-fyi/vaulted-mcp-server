@@ -235,7 +235,7 @@ describe("retrieveSecret", () => {
     }
   });
 
-  it("throws ApiError with status 500 and API_ERROR on 500 response", async () => {
+  it("throws ApiError with status 500 and API_UNREACHABLE on 500 response", async () => {
     mockFetch.mockResolvedValueOnce({
       ok: false,
       status: 500,
@@ -248,6 +248,23 @@ describe("retrieveSecret", () => {
     } catch (err) {
       expect(err).toBeInstanceOf(ApiError);
       expect((err as InstanceType<typeof ApiError>).status).toBe(500);
+      expect((err as InstanceType<typeof ApiError>).code).toBe("API_UNREACHABLE");
+    }
+  });
+
+  it("throws ApiError with API_ERROR on 400-range non-404 response", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 429,
+      json: async () => ({ error: "rate limited" }),
+    });
+
+    try {
+      await retrieveSecret("abc123");
+      expect.fail("should have thrown");
+    } catch (err) {
+      expect(err).toBeInstanceOf(ApiError);
+      expect((err as InstanceType<typeof ApiError>).status).toBe(429);
       expect((err as InstanceType<typeof ApiError>).code).toBe("API_ERROR");
     }
   });

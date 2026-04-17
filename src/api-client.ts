@@ -81,12 +81,15 @@ export async function retrieveSecret(id: string): Promise<RetrieveSecretResult> 
     } catch {
       body = await response.text().catch(() => null);
     }
-    throw new ApiError(
-      `Vaulted API returned ${response.status}`,
-      response.status,
-      response.status === 404 ? "SECRET_NOT_FOUND" : "API_ERROR",
-      body,
-    );
+    let code: ErrorCode;
+    if (response.status === 404) {
+      code = "SECRET_NOT_FOUND";
+    } else if (response.status >= 500) {
+      code = "API_UNREACHABLE";
+    } else {
+      code = "API_ERROR";
+    }
+    throw new ApiError(`Vaulted API returned ${response.status}`, response.status, code, body);
   }
 
   const data = (await response.json()) as RetrieveSecretResult;

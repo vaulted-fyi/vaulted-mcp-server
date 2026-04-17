@@ -85,15 +85,15 @@ export async function handleViewSecret(params: ViewSecretParams): Promise<Handle
       if (err.status === 404) {
         return errorResult(
           "SECRET_EXPIRED",
-          "The secret is no longer available (expired or all views consumed)",
-          "Ask the sender for a new link",
+          "This secret is no longer available (expired or all views consumed)",
+          "This secret has expired or reached its view limit. Ask the sender to create a new one.",
         );
       }
       if (err.code === "API_UNREACHABLE") {
         return errorResult(
           "API_UNREACHABLE",
           "Unable to reach the Vaulted API",
-          "Check your network connection and try again",
+          "Unable to reach vaulted.fyi. Check your internet connection and try again.",
         );
       }
     }
@@ -108,7 +108,7 @@ export async function handleViewSecret(params: ViewSecretParams): Promise<Handle
     return errorResult(
       "PASSPHRASE_REQUIRED",
       "This secret is passphrase-protected",
-      "Provide the passphrase via the 'passphrase' parameter",
+      "This secret is passphrase-protected. Provide the passphrase and try again.",
     );
   }
 
@@ -138,7 +138,7 @@ export async function handleViewSecret(params: ViewSecretParams): Promise<Handle
       "ENCRYPTION_FAILED",
       "Failed to decrypt the secret (this attempt may have consumed a view)",
       params.passphrase
-        ? "Check that the passphrase is correct and the URL is complete"
+        ? "The passphrase may be incorrect. Try again or ask the sender."
         : "Check that the URL is complete, including the fragment after '#'",
     );
   }

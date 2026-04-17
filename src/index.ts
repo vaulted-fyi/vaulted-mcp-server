@@ -84,9 +84,12 @@ export function createServer(): McpServer {
           .enum(["browser", "clipboard", "file", "direct"])
           .optional()
           .describe(
-            "How to deliver the secret. browser (default): opens in your browser, no decryption in agent. direct: returns decrypted content in the response. clipboard/file: coming soon.",
+            "How to deliver the secret. browser (default): opens the link in your browser — decryption happens in the web app. direct: returns decrypted content in the tool response. clipboard: copies decrypted content to the system clipboard (content omitted from response). file: writes decrypted content to file_path (content omitted from response).",
           ),
-        passphrase: z.string().optional().describe("Passphrase for passphrase-protected secrets."),
+        passphrase: z
+          .string()
+          .optional()
+          .describe("Passphrase to decrypt a passphrase-protected secret"),
         file_path: z
           .string()
           .optional()

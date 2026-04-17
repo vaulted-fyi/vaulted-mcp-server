@@ -248,6 +248,52 @@ describe("handleViewSecret — direct mode", () => {
     expect(parsed.success).toBe(false);
     expect(parsed.error.code).toBe("ENCRYPTION_FAILED");
   });
+
+  it("ENCRYPTION_FAILED suggestion points at passphrase when passphrase was provided", async () => {
+    mockRetrieveSecret.mockResolvedValueOnce({
+      ciphertext: "ct",
+      iv: "iv",
+      hasPassphrase: true,
+      viewsRemaining: 1,
+    });
+    mockUnwrapKeyWithPassphrase.mockRejectedValueOnce(
+      Object.assign(new Error("unwrap failed"), { name: "OperationError" }),
+    );
+
+    const result = await handleViewSecret({
+      url: "https://vaulted.fyi/s/abc#wrapped.salt",
+      output_mode: "direct",
+      passphrase: "wrong-pw",
+    });
+    const parsed = parseResult(result);
+
+    expect(parsed.success).toBe(false);
+    expect(parsed.error.code).toBe("ENCRYPTION_FAILED");
+    expect(parsed.error.suggestion).toBe(
+      "The passphrase may be incorrect. Try again or ask the sender.",
+    );
+  });
+
+  it("ENCRYPTION_FAILED suggestion points at URL when no passphrase was provided", async () => {
+    mockRetrieveSecret.mockResolvedValueOnce({
+      ciphertext: "ct",
+      iv: "iv",
+      hasPassphrase: false,
+      viewsRemaining: 1,
+    });
+    mockImportKey.mockResolvedValueOnce("ck");
+    mockDecrypt.mockRejectedValueOnce(new Error("bad tag"));
+
+    const result = await handleViewSecret({
+      url: "https://vaulted.fyi/s/abc#k",
+      output_mode: "direct",
+    });
+    const parsed = parseResult(result);
+
+    expect(parsed.error.suggestion).toBe(
+      "Check that the URL is complete, including the fragment after '#'",
+    );
+  });
 });
 
 describe("handleViewSecret — browser mode error paths", () => {
