@@ -7,25 +7,59 @@ interface CheckStatusParams {
   status_token?: string;
 }
 
+function isNonEmptyString(value: string | undefined): value is string {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+function extractIdFromStatusPath(pathname: string): string | null {
+  const parts = pathname.split("/").filter(Boolean);
+
+  if (parts.length === 3 && parts[0] === "s" && parts[2] === "status") {
+    return parts[1];
+  }
+
+  if (parts.length === 4 && parts[0] === "api" && parts[1] === "secrets" && parts[3] === "status") {
+    return parts[2];
+  }
+
+  return null;
+}
+
 function resolveIdAndToken(
   params: CheckStatusParams,
 ): { id: string; token: string } | ReturnType<typeof errorResult> {
   if (params.url) {
-    const parsed = new URL(params.url);
-    const parts = parsed.pathname.split("/").filter(Boolean);
-    const id = parts[parts.length - 2];
-    const token = parsed.searchParams.get("token") ?? "";
+    let parsed: URL;
+    try {
+      parsed = new URL(params.url);
+    } catch {
+      return errorResult(
+        "INVALID_INPUT",
+        "The provided URL is not valid",
+        "Provide a valid status URL or use secret_id + status_token parameters",
+      );
+    }
+
+    const id = extractIdFromStatusPath(parsed.pathname);
+    const token = parsed.searchParams.get("token");
     if (!id) {
       return errorResult(
         "INVALID_INPUT",
-        "Could not extract secret ID from the provided URL",
+        "URL does not contain a valid status path",
+        "Expected /s/<secretId>/status or /api/secrets/<secretId>/status",
+      );
+    }
+    if (!isNonEmptyString(token)) {
+      return errorResult(
+        "INVALID_INPUT",
+        "Status token is required",
         "Provide a valid status URL or use secret_id + status_token parameters",
       );
     }
     return { id, token };
   }
 
-  if (params.secret_id && params.status_token !== undefined) {
+  if (isNonEmptyString(params.secret_id) && isNonEmptyString(params.status_token)) {
     return { id: params.secret_id, token: params.status_token };
   }
 

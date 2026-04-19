@@ -129,12 +129,8 @@ export async function checkSecretStatus(id: string, token: string): Promise<Secr
     if (response.status === 404) {
       throw new ApiError("Secret not found or expired", 404, "SECRET_EXPIRED", body);
     }
-    throw new ApiError(
-      `Vaulted API returned ${response.status}`,
-      response.status,
-      "API_UNREACHABLE",
-      body,
-    );
+    const code: ErrorCode = response.status >= 500 ? "API_UNREACHABLE" : "API_ERROR";
+    throw new ApiError(`Vaulted API returned ${response.status}`, response.status, code, body);
   }
 
   const raw = (await response.json()) as {

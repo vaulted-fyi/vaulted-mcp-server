@@ -397,4 +397,22 @@ describe("checkSecretStatus", () => {
       expect((err as InstanceType<typeof ApiError>).code).toBe("API_UNREACHABLE");
     }
   });
+
+  it("throws ApiError with API_ERROR on 400-range non-404 response", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 401,
+      json: async () => ({ error: "invalid token" }),
+    });
+
+    const { checkSecretStatus, ApiError } = await import("./api-client.js");
+    try {
+      await checkSecretStatus("abc123", "tok");
+      expect.fail("should have thrown");
+    } catch (err) {
+      expect(err).toBeInstanceOf(ApiError);
+      expect((err as InstanceType<typeof ApiError>).status).toBe(401);
+      expect((err as InstanceType<typeof ApiError>).code).toBe("API_ERROR");
+    }
+  });
 });

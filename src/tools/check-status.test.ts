@@ -134,15 +134,52 @@ describe("checkStatusHandler", () => {
     expect(mockCheckSecretStatus).not.toHaveBeenCalled();
   });
 
-  it("only url provided with no token query param — uses empty token", async () => {
-    mockCheckSecretStatus.mockResolvedValueOnce(successData);
+  it("invalid URL string returns INVALID_INPUT", async () => {
+    const result = await checkStatusHandler({
+      url: "not-a-url",
+    });
 
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed.success).toBe(false);
+    expect(parsed.error.code).toBe("INVALID_INPUT");
+    expect(result.isError).toBe(true);
+    expect(mockCheckSecretStatus).not.toHaveBeenCalled();
+  });
+
+  it("non-status URL path returns INVALID_INPUT", async () => {
+    const result = await checkStatusHandler({
+      url: "https://vaulted.fyi/s/abc123?token=tok456",
+    });
+
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed.success).toBe(false);
+    expect(parsed.error.code).toBe("INVALID_INPUT");
+    expect(result.isError).toBe(true);
+    expect(mockCheckSecretStatus).not.toHaveBeenCalled();
+  });
+
+  it("status URL with missing token returns INVALID_INPUT", async () => {
     const result = await checkStatusHandler({
       url: "https://vaulted.fyi/s/abc123/status",
     });
 
-    expect(mockCheckSecretStatus).toHaveBeenCalledWith("abc123", "");
     const parsed = JSON.parse(result.content[0].text);
-    expect(parsed.success).toBe(true);
+    expect(parsed.success).toBe(false);
+    expect(parsed.error.code).toBe("INVALID_INPUT");
+    expect(result.isError).toBe(true);
+    expect(mockCheckSecretStatus).not.toHaveBeenCalled();
+  });
+
+  it("secret_id with empty status_token returns INVALID_INPUT", async () => {
+    const result = await checkStatusHandler({
+      secret_id: "abc123",
+      status_token: "   ",
+    });
+
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed.success).toBe(false);
+    expect(parsed.error.code).toBe("INVALID_INPUT");
+    expect(result.isError).toBe(true);
+    expect(mockCheckSecretStatus).not.toHaveBeenCalled();
   });
 });
