@@ -286,3 +286,133 @@ describe("retrieveSecret", () => {
     expect(calledUrl).toBe("https://test.vaulted.fyi/api/secrets/my-secret-id");
   });
 });
+
+describe("checkSecretStatus", () => {
+  beforeEach(() => {
+    mockFetch.mockReset();
+  });
+
+  it("returns { views, maxViews, status, expiresAt } on success", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        views: [
+          { at: 1700000000, country: "US" },
+          { at: 1700000001, country: "DE" },
+        ],
+        maxViews: 5,
+        burned: false,
+        createdAt: 1699999999,
+      }),
+    });
+
+    const { checkSecretStatus } = await import("./api-client.js");
+    const result = await checkSecretStatus("abc123", "tok456");
+    expect(result).toEqual({
+      views: 2,
+      maxViews: 5,
+      status: "active",
+      expiresAt: null,
+    });
+  });
+
+  it("calls GET {config.baseUrl}/api/secrets/{id}/status?token={token}", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ views: [], maxViews: 1, burned: false, createdAt: 0 }),
+    });
+
+    const { checkSecretStatus } = await import("./api-client.js");
+    await checkSecretStatus("abc123", "mytoken");
+
+    expect(mockFetch).toHaveBeenCalledWith(
+      "https://test.vaulted.fyi/api/secrets/abc123/status?token=mytoken",
+      expect.objectContaining({ method: "GET" }),
+    );
+  });
+
+  it("returns status: 'destroyed' when burned is true", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        views: [{ at: 1700000000, country: "US" }],
+        maxViews: 1,
+        burned: true,
+        createdAt: 1699999999,
+      }),
+    });
+
+    const { checkSecretStatus } = await import("./api-client.js");
+    const result = await checkSecretStatus("abc123", "tok");
+    expect(result.status).toBe("destroyed");
+    expect(result.views).toBe(1);
+  });
+
+  it("throws ApiError with SECRET_EXPIRED on 404 response", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 404,
+      json: async () => ({ error: "Secret not found or expired" }),
+    });
+
+    const { checkSecretStatus, ApiError } = await import("./api-client.js");
+    try {
+      await checkSecretStatus("gone123", "tok");
+      expect.fail("should have thrown");
+    } catch (err) {
+      expect(err).toBeInstanceOf(ApiError);
+      expect((err as InstanceType<typeof ApiError>).status).toBe(404);
+      expect((err as InstanceType<typeof ApiError>).code).toBe("SECRET_EXPIRED");
+    }
+  });
+
+  it("throws ApiError with API_UNREACHABLE on network failure", async () => {
+    mockFetch.mockRejectedValueOnce(new TypeError("fetch failed"));
+
+    const { checkSecretStatus, ApiError } = await import("./api-client.js");
+    try {
+      await checkSecretStatus("abc123", "tok");
+      expect.fail("should have thrown");
+    } catch (err) {
+      expect(err).toBeInstanceOf(ApiError);
+      expect((err as InstanceType<typeof ApiError>).code).toBe("API_UNREACHABLE");
+      expect((err as InstanceType<typeof ApiError>).status).toBe(0);
+    }
+  });
+
+  it("throws ApiError with API_UNREACHABLE on 500 response", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 500,
+      json: async () => ({ error: "internal server error" }),
+    });
+
+    const { checkSecretStatus, ApiError } = await import("./api-client.js");
+    try {
+      await checkSecretStatus("abc123", "tok");
+      expect.fail("should have thrown");
+    } catch (err) {
+      expect(err).toBeInstanceOf(ApiError);
+      expect((err as InstanceType<typeof ApiError>).status).toBe(500);
+      expect((err as InstanceType<typeof ApiError>).code).toBe("API_UNREACHABLE");
+    }
+  });
+
+  it("throws ApiError with API_ERROR on 400-range non-404 response", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 401,
+      json: async () => ({ error: "invalid token" }),
+    });
+
+    const { checkSecretStatus, ApiError } = await import("./api-client.js");
+    try {
+      await checkSecretStatus("abc123", "tok");
+      expect.fail("should have thrown");
+    } catch (err) {
+      expect(err).toBeInstanceOf(ApiError);
+      expect((err as InstanceType<typeof ApiError>).status).toBe(401);
+      expect((err as InstanceType<typeof ApiError>).code).toBe("API_ERROR");
+    }
+  });
+});

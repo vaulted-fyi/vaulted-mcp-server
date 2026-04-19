@@ -6,6 +6,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod/v4";
 import { handleCreateSecret } from "./tools/create-secret.js";
 import { handleViewSecret, VIEW_SECRET_DESCRIPTION } from "./tools/view-secret.js";
+import { checkStatusHandler } from "./tools/check-status.js";
 import { shareSecretPrompt } from "./prompts/share-secret.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -121,17 +122,7 @@ export function createServer(): McpServer {
         idempotentHint: true,
       },
     },
-    async () => ({
-      content: [
-        {
-          type: "text" as const,
-          text: JSON.stringify({
-            success: false,
-            error: "not implemented yet",
-          }),
-        },
-      ],
-    }),
+    async (params) => checkStatusHandler(params),
   );
 
   server.registerPrompt(
