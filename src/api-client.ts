@@ -100,3 +100,54 @@ export async function retrieveSecret(id: string): Promise<RetrieveSecretResult> 
     viewsRemaining: data.viewsRemaining,
   };
 }
+
+export interface SecretStatusResponse {
+  views: number;
+  maxViews: number;
+  status: "active" | "destroyed";
+  expiresAt: string | null;
+}
+
+export async function checkSecretStatus(id: string, token: string): Promise<SecretStatusResponse> {
+  let response: Response;
+  try {
+    response = await fetch(
+      `${config.baseUrl}/api/secrets/${id}/status?token=${encodeURIComponent(token)}`,
+      { method: "GET" },
+    );
+  } catch {
+    throw new ApiError("Unable to reach the Vaulted API", 0, "API_UNREACHABLE");
+  }
+
+  if (!response.ok) {
+    let body: unknown;
+    try {
+      body = await response.json();
+    } catch {
+      body = await response.text().catch(() => null);
+    }
+    if (response.status === 404) {
+      throw new ApiError("Secret not found or expired", 404, "SECRET_EXPIRED", body);
+    }
+    throw new ApiError(
+      `Vaulted API returned ${response.status}`,
+      response.status,
+      "API_UNREACHABLE",
+      body,
+    );
+  }
+
+  const raw = (await response.json()) as {
+    views: Array<{ at: number; country: string }>;
+    maxViews: number;
+    burned: boolean;
+    createdAt: number;
+  };
+
+  return {
+    views: Array.isArray(raw.views) ? raw.views.length : 0,
+    maxViews: raw.maxViews,
+    status: raw.burned ? "destroyed" : "active",
+    expiresAt: null,
+  };
+}

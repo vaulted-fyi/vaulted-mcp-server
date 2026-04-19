@@ -18,6 +18,7 @@ vi.mock("@modelcontextprotocol/sdk/server/stdio.js", () => {
 vi.mock("./api-client.js", () => ({
   createSecret: vi.fn().mockResolvedValue({ id: "test-id", statusToken: "test-token" }),
   retrieveSecret: vi.fn(),
+  checkSecretStatus: vi.fn(),
   ApiError: class ApiError extends Error {
     constructor(
       message: string,
@@ -132,7 +133,7 @@ describe("tool registration", () => {
   });
 });
 
-describe("placeholder handlers", () => {
+describe("check_status integration via MCP client", () => {
   let client: InstanceType<typeof Client>;
   let server: ReturnType<typeof createServer>;
 
@@ -149,14 +150,51 @@ describe("placeholder handlers", () => {
     await server.close();
   });
 
-  it("check_status returns 'not implemented yet'", async () => {
+  it("appears in listTools with correct description", async () => {
+    const { tools } = await client.listTools();
+    const tool = tools.find((t) => t.name === "check_status");
+    expect(tool?.description).toContain("Check the status of a previously shared secret");
+    expect(tool?.description).toContain("Does not consume a view");
+  });
+
+  it("has readOnlyHint: true annotation", async () => {
+    const { tools } = await client.listTools();
+    const tool = tools.find((t) => t.name === "check_status");
+    expect(tool?.annotations?.readOnlyHint).toBe(true);
+  });
+
+  it("returns structured success response via status URL", async () => {
+    const { checkSecretStatus } = await import("./api-client.js");
+    vi.mocked(checkSecretStatus).mockResolvedValueOnce({
+      views: 1,
+      maxViews: 3,
+      status: "active",
+      expiresAt: null,
+    });
+
+    const result = await client.callTool({
+      name: "check_status",
+      arguments: { url: "https://vaulted.fyi/s/abc123/status?token=mytoken" },
+    });
+
+    expect(vi.mocked(checkSecretStatus)).toHaveBeenCalledWith("abc123", "mytoken");
+
+    const parsed = JSON.parse((result.content as Array<{ type: string; text: string }>)[0].text);
+    expect(parsed.success).toBe(true);
+    expect(parsed.data.views).toBe(1);
+    expect(parsed.data.maxViews).toBe(3);
+    expect(parsed.data.status).toBe("active");
+  });
+
+  it("returns INVALID_INPUT when called with no params", async () => {
     const result = await client.callTool({
       name: "check_status",
       arguments: {},
     });
-    const text = (result.content as Array<{ type: string; text: string }>)[0].text;
-    const parsed = JSON.parse(text);
-    expect(parsed).toEqual({ success: false, error: "not implemented yet" });
+    const parsed = JSON.parse((result.content as Array<{ type: string; text: string }>)[0].text);
+    expect(parsed.success).toBe(false);
+    expect(parsed.error.code).toBe("INVALID_INPUT");
+    expect(result.isError).toBe(true);
   });
 });
 
