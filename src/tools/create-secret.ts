@@ -1,5 +1,6 @@
 import { generateKey, exportKey, encrypt, wrapKeyWithPassphrase } from "@vaulted/crypto";
 import { createSecret, ApiError } from "../api-client.js";
+import { appendHistory } from "../history.js";
 import { successResult, errorResult } from "../errors.js";
 import { config } from "../config.js";
 
@@ -24,6 +25,7 @@ export async function handleCreateSecret(params: {
   max_views?: string;
   expiry?: string;
   passphrase?: string;
+  label?: string;
 }): Promise<{ content: Array<{ type: "text"; text: string }>; isError?: boolean }> {
   if (!params.content || params.content.length === 0) {
     return errorResult(
@@ -106,6 +108,15 @@ export async function handleCreateSecret(params: {
 
     const url = `${config.baseUrl}/s/${id}#${fragment}`;
     const statusUrl = `${config.baseUrl}/s/${id}/status?token=${statusToken}`;
+
+    void appendHistory({
+      id,
+      statusToken,
+      createdAt: new Date().toISOString(),
+      maxViews,
+      expiry,
+      label: params.label,
+    });
 
     return successResult(
       {

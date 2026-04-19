@@ -1,6 +1,10 @@
 import { handleCreateSecret, EXPIRY_TO_TTL, VALID_MAX_VIEWS } from "./create-secret.js";
 import { importKey, decrypt } from "@vaulted/crypto";
 
+vi.mock("../history.js", () => ({
+  appendHistory: vi.fn().mockResolvedValue(undefined),
+}));
+
 vi.mock("../api-client.js", () => ({
   createSecret: vi.fn().mockResolvedValue({ id: "test-id-123", statusToken: "test-token-456" }),
   ApiError: class ApiError extends Error {
@@ -21,6 +25,7 @@ vi.mock("../config.js", () => ({
 }));
 
 import { createSecret, ApiError } from "../api-client.js";
+import { appendHistory } from "../history.js";
 
 function parseResult(result: {
   content: Array<{ type: string; text: string }>;
@@ -193,6 +198,36 @@ describe("handleCreateSecret", () => {
     expect(parsed.data.statusUrl).toBe(
       "https://vaulted.fyi/s/test-id-123/status?token=test-token-456",
     );
+  });
+
+  it("calls appendHistory fire-and-forget after a successful create", async () => {
+    const mockAppend = vi.mocked(appendHistory);
+    mockAppend.mockClear();
+
+    await handleCreateSecret({ content: "test", max_views: "3", expiry: "7d", label: "my-key" });
+
+    // fire-and-forget: may not have resolved yet, but was called
+    await Promise.resolve(); // flush microtasks
+    expect(mockAppend).toHaveBeenCalledOnce();
+    const call = mockAppend.mock.calls[0][0];
+    expect(call.id).toBe("test-id-123");
+    expect(call.statusToken).toBe("test-token-456");
+    expect(call.maxViews).toBe(3);
+    expect(call.expiry).toBe("7d");
+    expect(call.label).toBe("my-key");
+    expect(call).not.toHaveProperty("content");
+    expect(call).not.toHaveProperty("encryptionKey");
+  });
+
+  it("does NOT call appendHistory when create fails", async () => {
+    vi.mocked(createSecret).mockRejectedValueOnce(new Error("network error"));
+    const mockAppend = vi.mocked(appendHistory);
+    mockAppend.mockClear();
+
+    await handleCreateSecret({ content: "test" });
+
+    await Promise.resolve();
+    expect(mockAppend).not.toHaveBeenCalled();
   });
 });
 
