@@ -35,8 +35,14 @@ function parseResult(result: {
 }
 
 describe("handleCreateSecret", () => {
+  const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  afterAll(() => {
+    consoleErrorSpy.mockRestore();
   });
 
   it("creates a secret with defaults (max_views=1, expiry=24h)", async () => {
@@ -228,6 +234,22 @@ describe("handleCreateSecret", () => {
 
     await Promise.resolve();
     expect(mockAppend).not.toHaveBeenCalled();
+  });
+
+  it("logs history persistence failures without failing create_secret", async () => {
+    const mockAppend = vi.mocked(appendHistory);
+    mockAppend.mockRejectedValueOnce(new Error("disk full"));
+
+    const result = await handleCreateSecret({ content: "test" });
+    const parsed = parseResult(result);
+
+    await Promise.resolve();
+
+    expect(parsed.success).toBe(true);
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      "[vaulted] Failed to persist local secret history",
+      expect.any(Error),
+    );
   });
 });
 

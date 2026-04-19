@@ -21,7 +21,7 @@ vi.mock("../config.js", () => ({
 }));
 
 const { readHistory } = await import("../history.js");
-const { checkSecretStatus } = await import("../api-client.js");
+const { checkSecretStatus, ApiError } = await import("../api-client.js");
 const { listSecretsHandler } = await import("./list-secrets.js");
 
 const mockReadHistory = vi.mocked(readHistory);
@@ -85,7 +85,7 @@ describe("listSecretsHandler", () => {
     expect(parsed.data[1].views).toBe(1);
   });
 
-  it("catches per-entry checkSecretStatus errors and marks entry as destroyed", async () => {
+  it("marks entries as unknown when live status checks fail transiently", async () => {
     mockReadHistory.mockResolvedValueOnce([entry1, entry2]);
     // sorted newest-first: entry2 (Apr 19) → entry1 (Apr 18)
     mockCheckSecretStatus
@@ -98,8 +98,23 @@ describe("listSecretsHandler", () => {
     expect(parsed.success).toBe(true);
     expect(parsed.data).toHaveLength(2);
 
-    const destroyedEntry = parsed.data.find((e: { id: string }) => e.id === "id1");
-    expect(destroyedEntry.status).toBe("destroyed");
+    const unknownEntry = parsed.data.find((e: { id: string }) => e.id === "id1");
+    expect(unknownEntry.status).toBe("unknown");
+    expect(unknownEntry.statusError).toBe("API_ERROR");
+  });
+
+  it("marks entries as destroyed when the API says the secret is gone", async () => {
+    mockReadHistory.mockResolvedValueOnce([entry1]);
+    mockCheckSecretStatus.mockRejectedValueOnce(
+      new ApiError("Secret not found or expired", 404, "SECRET_EXPIRED"),
+    );
+
+    const result = await listSecretsHandler();
+    const parsed = JSON.parse(result.content[0].text);
+
+    expect(parsed.success).toBe(true);
+    expect(parsed.data[0].status).toBe("destroyed");
+    expect(parsed.data[0].statusError).toBeUndefined();
   });
 
   it("includes all original entry fields in enriched output", async () => {

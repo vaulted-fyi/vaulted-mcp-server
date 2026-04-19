@@ -116,6 +116,8 @@ export async function handleCreateSecret(params: {
       maxViews,
       expiry,
       label: params.label,
+    }).catch((error: unknown) => {
+      console.error("[vaulted] Failed to persist local secret history", error);
     });
 
     return successResult(

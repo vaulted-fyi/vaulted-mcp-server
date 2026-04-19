@@ -87,6 +87,29 @@ describe("appendHistory", () => {
     expect(result[1]).toEqual(second);
   });
 
+  it("serializes concurrent appends so entries are not lost", async () => {
+    const first = {
+      id: "first",
+      statusToken: "tok1",
+      createdAt: "2026-04-17T10:00:00Z",
+      maxViews: 1,
+      expiry: "24h",
+    };
+    const second = {
+      id: "second",
+      statusToken: "tok2",
+      createdAt: "2026-04-18T10:00:00Z",
+      maxViews: 5,
+      expiry: "7d",
+    };
+
+    await Promise.all([appendHistory(first), appendHistory(second)]);
+
+    const result = await readHistory();
+    expect(result).toHaveLength(2);
+    expect(result).toEqual([first, second]);
+  });
+
   it("stores only metadata — no encryption keys or ciphertext fields", async () => {
     const entry = {
       id: "safe-id",

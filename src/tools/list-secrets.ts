@@ -1,11 +1,12 @@
 import { readHistory, type HistoryEntry } from "../history.js";
-import { checkSecretStatus, type SecretStatusResponse } from "../api-client.js";
+import { checkSecretStatus, type SecretStatusResponse, ApiError } from "../api-client.js";
 import { successResult } from "../errors.js";
 
 type EnrichedEntry = HistoryEntry & {
   views: number | null;
-  status: "active" | "destroyed";
+  status: "active" | "destroyed" | "unknown";
   expiresAt: string | null;
+  statusError?: "API_UNREACHABLE" | "API_ERROR";
 };
 
 export async function listSecretsHandler() {
@@ -30,12 +31,25 @@ export async function listSecretsHandler() {
           entry.statusToken,
         );
         return { ...entry, ...statusData };
-      } catch {
+      } catch (error) {
+        if (error instanceof ApiError && error.code === "SECRET_EXPIRED") {
+          return {
+            ...entry,
+            views: null,
+            status: "destroyed" as const,
+            expiresAt: null,
+          };
+        }
+
         return {
           ...entry,
           views: null,
-          status: "destroyed" as const,
+          status: "unknown" as const,
           expiresAt: null,
+          statusError:
+            error instanceof ApiError && error.code === "API_UNREACHABLE"
+              ? "API_UNREACHABLE"
+              : "API_ERROR",
         };
       }
     }),
