@@ -14,7 +14,7 @@ export async function listSecretsHandler() {
 
   if (entries.length === 0) {
     return successResult(
-      [],
+      { entries: [], suggestedAction: undefined },
       "No secrets shared yet. Use create_secret to share your first secret.",
     );
   }
@@ -56,7 +56,7 @@ export async function listSecretsHandler() {
   );
 
   const unconsumedActive = enriched.filter(
-    (e) => e.status === "active" && (e.views as number) < e.maxViews,
+    (e) => e.status === "active" && e.views !== null && e.views < e.maxViews,
   );
 
   const suggestedAction =

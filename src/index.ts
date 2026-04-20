@@ -122,7 +122,14 @@ export function createServer(): McpServer {
         url: z.string().optional(),
         secret_id: z.string().optional(),
         status_token: z.string().optional(),
-        previous_views: z.number().int().min(0).optional(),
+        previousViews: z
+          .number()
+          .int()
+          .min(0)
+          .optional()
+          .describe(
+            "Last known view count. When provided, the response message will indicate if new views have occurred since this value.",
+          ),
       },
       annotations: {
         readOnlyHint: true,
@@ -130,13 +137,7 @@ export function createServer(): McpServer {
         idempotentHint: true,
       },
     },
-    async (params) =>
-      checkStatusHandler({
-        url: params.url,
-        secret_id: params.secret_id,
-        status_token: params.status_token,
-        previousViews: params.previous_views,
-      }),
+    async (params) => checkStatusHandler(params),
   );
 
   server.registerTool(

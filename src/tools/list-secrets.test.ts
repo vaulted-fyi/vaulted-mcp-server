@@ -57,7 +57,8 @@ describe("listSecretsHandler", () => {
     const parsed = JSON.parse(result.content[0].text);
 
     expect(parsed.success).toBe(true);
-    expect(parsed.data).toEqual([]);
+    expect(parsed.data.entries).toEqual([]);
+    expect(parsed.data.suggestedAction).toBeUndefined();
     expect(parsed.message).toContain("No secrets shared yet");
     expect(parsed.message).toContain("create_secret");
   });
