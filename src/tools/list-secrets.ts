@@ -55,5 +55,17 @@ export async function listSecretsHandler() {
     }),
   );
 
-  return successResult(enriched, `Found ${enriched.length} secret(s) in history.`);
+  const unconsumedActive = enriched.filter(
+    (e) => e.status === "active" && (e.views as number) < e.maxViews,
+  );
+
+  const suggestedAction =
+    unconsumedActive.length > 0
+      ? "Some secrets haven't been viewed yet. Use check_status with the statusToken to monitor them."
+      : undefined;
+
+  return successResult(
+    { entries: enriched, suggestedAction },
+    `Found ${enriched.length} secret(s) in history.`,
+  );
 }

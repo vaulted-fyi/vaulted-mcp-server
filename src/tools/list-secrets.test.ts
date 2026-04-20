@@ -72,17 +72,17 @@ describe("listSecretsHandler", () => {
     const parsed = JSON.parse(result.content[0].text);
 
     expect(parsed.success).toBe(true);
-    expect(parsed.data).toHaveLength(2);
+    expect(parsed.data.entries).toHaveLength(2);
 
     // entry2 (newer) should be first
-    expect(parsed.data[0].id).toBe("id2");
-    expect(parsed.data[0].views).toBe(0);
-    expect(parsed.data[0].status).toBe("active");
+    expect(parsed.data.entries[0].id).toBe("id2");
+    expect(parsed.data.entries[0].views).toBe(0);
+    expect(parsed.data.entries[0].status).toBe("active");
 
     // entry1 (older) should be second
-    expect(parsed.data[1].id).toBe("id1");
-    expect(parsed.data[1].label).toBe("stripe-key");
-    expect(parsed.data[1].views).toBe(1);
+    expect(parsed.data.entries[1].id).toBe("id1");
+    expect(parsed.data.entries[1].label).toBe("stripe-key");
+    expect(parsed.data.entries[1].views).toBe(1);
   });
 
   it("marks entries as unknown when live status checks fail transiently", async () => {
@@ -96,9 +96,9 @@ describe("listSecretsHandler", () => {
     const parsed = JSON.parse(result.content[0].text);
 
     expect(parsed.success).toBe(true);
-    expect(parsed.data).toHaveLength(2);
+    expect(parsed.data.entries).toHaveLength(2);
 
-    const unknownEntry = parsed.data.find((e: { id: string }) => e.id === "id1");
+    const unknownEntry = parsed.data.entries.find((e: { id: string }) => e.id === "id1");
     expect(unknownEntry.status).toBe("unknown");
     expect(unknownEntry.statusError).toBe("API_ERROR");
   });
@@ -113,8 +113,8 @@ describe("listSecretsHandler", () => {
     const parsed = JSON.parse(result.content[0].text);
 
     expect(parsed.success).toBe(true);
-    expect(parsed.data[0].status).toBe("destroyed");
-    expect(parsed.data[0].statusError).toBeUndefined();
+    expect(parsed.data.entries[0].status).toBe("destroyed");
+    expect(parsed.data.entries[0].statusError).toBeUndefined();
   });
 
   it("includes all original entry fields in enriched output", async () => {
@@ -128,7 +128,7 @@ describe("listSecretsHandler", () => {
 
     const result = await listSecretsHandler();
     const parsed = JSON.parse(result.content[0].text);
-    const item = parsed.data[0];
+    const item = parsed.data.entries[0];
 
     expect(item.id).toBe("id1");
     expect(item.statusToken).toBe("tok1");
@@ -151,5 +151,55 @@ describe("listSecretsHandler", () => {
     const parsed = JSON.parse(result.content[0].text);
 
     expect(parsed.message).toContain("2");
+  });
+
+  it("suggestedAction present when active unconsumed entries exist", async () => {
+    mockReadHistory.mockResolvedValueOnce([entry1]);
+    mockCheckSecretStatus.mockResolvedValueOnce({
+      views: 1,
+      maxViews: 3,
+      status: "active",
+      expiresAt: null,
+    });
+
+    const result = await listSecretsHandler();
+    const parsed = JSON.parse(result.content[0].text);
+
+    expect(parsed.data.suggestedAction).toBeDefined();
+    expect(parsed.data.suggestedAction).toContain("check_status");
+    expect(parsed.data.suggestedAction).toContain("statusToken");
+  });
+
+  it("suggestedAction is undefined when all entries are consumed", async () => {
+    mockReadHistory.mockResolvedValueOnce([entry2]);
+    mockCheckSecretStatus.mockResolvedValueOnce({
+      views: 1,
+      maxViews: 1,
+      status: "destroyed",
+      expiresAt: null,
+    });
+
+    const result = await listSecretsHandler();
+    const parsed = JSON.parse(result.content[0].text);
+
+    expect(parsed.data.suggestedAction).toBeUndefined();
+  });
+
+  it("statusToken is present in each returned history entry", async () => {
+    mockReadHistory.mockResolvedValueOnce([entry1, entry2]);
+    mockCheckSecretStatus.mockResolvedValue({
+      views: 0,
+      maxViews: 1,
+      status: "active",
+      expiresAt: null,
+    });
+
+    const result = await listSecretsHandler();
+    const parsed = JSON.parse(result.content[0].text);
+
+    for (const entry of parsed.data.entries) {
+      expect(entry.statusToken).toBeDefined();
+      expect(typeof entry.statusToken).toBe("string");
+    }
   });
 });
