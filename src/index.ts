@@ -7,6 +7,7 @@ import { z } from "zod/v4";
 import { handleCreateSecret } from "./tools/create-secret.js";
 import { handleViewSecret, VIEW_SECRET_DESCRIPTION } from "./tools/view-secret.js";
 import { checkStatusHandler } from "./tools/check-status.js";
+import { listSecretsHandler } from "./tools/list-secrets.js";
 import { shareSecretPrompt } from "./prompts/share-secret.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -30,7 +31,7 @@ export function createServer(): McpServer {
     {
       title: "Create Secret",
       description:
-        "Create a secure, self-destructing link for sharing sensitive data like passwords, API keys, or credentials. The secret is encrypted end-to-end — the server never sees plaintext. Supports reading secrets from environment variables, files, or .env files without exposing them in the conversation.",
+        "Create a secure, self-destructing link for sharing sensitive data like passwords, API keys, or credentials. The secret is encrypted end-to-end — the server never sees plaintext. Supports reading secrets from environment variables, files, or .env files without exposing them in the conversation. Optionally provide a label to identify the secret in your history.",
       inputSchema: {
         content: z
           .string()
@@ -50,6 +51,12 @@ export function createServer(): McpServer {
           .optional()
           .describe(
             "Optional passphrase for additional protection. The recipient will need this passphrase to view the secret.",
+          ),
+        label: z
+          .string()
+          .optional()
+          .describe(
+            "Optional label to identify this secret in your history (e.g. 'stripe-key', 'db-password').",
           ),
       },
       annotations: {
@@ -123,6 +130,22 @@ export function createServer(): McpServer {
       },
     },
     async (params) => checkStatusHandler(params),
+  );
+
+  server.registerTool(
+    "list_secrets",
+    {
+      title: "List Secrets",
+      description:
+        "List previously shared secrets and their current status — view counts, expiry, and whether they've been consumed.",
+      inputSchema: {},
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+      },
+    },
+    async () => listSecretsHandler(),
   );
 
   server.registerPrompt(

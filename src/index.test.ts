@@ -15,6 +15,11 @@ vi.mock("@modelcontextprotocol/sdk/server/stdio.js", () => {
   };
 });
 
+vi.mock("./history.js", () => ({
+  appendHistory: vi.fn().mockResolvedValue(undefined),
+  readHistory: vi.fn().mockResolvedValue([]),
+}));
+
 vi.mock("./api-client.js", () => ({
   createSecret: vi.fn().mockResolvedValue({ id: "test-id", statusToken: "test-token" }),
   retrieveSecret: vi.fn(),
@@ -91,15 +96,15 @@ describe("tool registration", () => {
     await server.close();
   });
 
-  it("registers exactly 3 tools", async () => {
+  it("registers exactly 4 tools", async () => {
     const { tools } = await client.listTools();
-    expect(tools).toHaveLength(3);
+    expect(tools).toHaveLength(4);
   });
 
-  it("registers create_secret, view_secret, and check_status", async () => {
+  it("registers create_secret, view_secret, check_status, and list_secrets", async () => {
     const { tools } = await client.listTools();
     const names = tools.map((t) => t.name).sort();
-    expect(names).toEqual(["check_status", "create_secret", "view_secret"]);
+    expect(names).toEqual(["check_status", "create_secret", "list_secrets", "view_secret"]);
   });
 
   it("has correct annotations for create_secret", async () => {
@@ -195,6 +200,44 @@ describe("check_status integration via MCP client", () => {
     expect(parsed.success).toBe(false);
     expect(parsed.error.code).toBe("INVALID_INPUT");
     expect(result.isError).toBe(true);
+  });
+});
+
+describe("list_secrets integration via MCP client", () => {
+  let client: InstanceType<typeof Client>;
+  let server: ReturnType<typeof createServer>;
+
+  beforeEach(async () => {
+    server = createServer();
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    client = new Client({ name: "test-client", version: "1.0.0" });
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+  });
+
+  afterEach(async () => {
+    await client.close();
+    await server.close();
+  });
+
+  it("appears in listTools with correct description and annotations", async () => {
+    const { tools } = await client.listTools();
+    const tool = tools.find((t) => t.name === "list_secrets");
+    expect(tool?.description).toContain("List previously shared secrets");
+    expect(tool?.annotations?.readOnlyHint).toBe(true);
+    expect(tool?.annotations?.destructiveHint).toBe(false);
+    expect(tool?.annotations?.idempotentHint).toBe(true);
+  });
+
+  it("returns empty-list message when history is empty", async () => {
+    const { readHistory } = await import("./history.js");
+    vi.mocked(readHistory).mockResolvedValueOnce([]);
+
+    const result = await client.callTool({ name: "list_secrets", arguments: {} });
+    const parsed = JSON.parse((result.content as Array<{ type: string; text: string }>)[0].text);
+    expect(parsed.success).toBe(true);
+    expect(parsed.data).toEqual([]);
+    expect(parsed.message).toContain("No secrets shared yet");
   });
 });
 
