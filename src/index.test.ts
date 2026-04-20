@@ -236,7 +236,8 @@ describe("list_secrets integration via MCP client", () => {
     const result = await client.callTool({ name: "list_secrets", arguments: {} });
     const parsed = JSON.parse((result.content as Array<{ type: string; text: string }>)[0].text);
     expect(parsed.success).toBe(true);
-    expect(parsed.data).toEqual([]);
+    expect(parsed.data.entries).toEqual([]);
+    expect(parsed.data.suggestedAction).toBeUndefined();
     expect(parsed.message).toContain("No secrets shared yet");
   });
 });
