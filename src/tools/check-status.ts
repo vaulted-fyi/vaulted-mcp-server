@@ -5,6 +5,7 @@ interface CheckStatusParams {
   url?: string;
   secret_id?: string;
   status_token?: string;
+  previousViews?: number;
 }
 
 function isNonEmptyString(value: string | undefined): value is string {
@@ -70,6 +71,32 @@ function resolveIdAndToken(
   );
 }
 
+function buildStatusMessage(
+  data: { views: number; maxViews: number; status: string; expiresAt: string | null },
+  previousViews?: number,
+): string {
+  const parts: string[] = [];
+
+  if (previousViews !== undefined && data.views > previousViews) {
+    parts.push(`New view detected! View count increased from ${previousViews} to ${data.views}.`);
+  }
+
+  if (data.status === "destroyed" && data.views === 0) {
+    parts.push(
+      "Your secret expired before being viewed. Consider creating a new one with a longer expiry.",
+    );
+  } else if (data.status === "destroyed" || data.views >= data.maxViews) {
+    parts.push("Your secret has been fully consumed — all views used.");
+  } else {
+    parts.push(
+      `Secret has been viewed ${data.views}/${data.maxViews} times. Still active.`,
+      "Check again later to see if it's been consumed.",
+    );
+  }
+
+  return parts.join(" ");
+}
+
 export async function checkStatusHandler(params: CheckStatusParams) {
   const resolved = resolveIdAndToken(params);
   if ("content" in resolved) return resolved;
@@ -85,7 +112,7 @@ export async function checkStatusHandler(params: CheckStatusParams) {
         status: data.status,
         expiresAt: data.expiresAt,
       },
-      `Secret has been viewed ${data.views}/${data.maxViews} times. Status: ${data.status}.`,
+      buildStatusMessage(data, params.previousViews),
     );
   } catch (err) {
     if (err instanceof ApiError) {

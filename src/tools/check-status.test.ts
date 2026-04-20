@@ -182,4 +182,110 @@ describe("checkStatusHandler", () => {
     expect(result.isError).toBe(true);
     expect(mockCheckSecretStatus).not.toHaveBeenCalled();
   });
+
+  describe("message variants", () => {
+    it("active with views < maxViews — still active message", async () => {
+      mockCheckSecretStatus.mockResolvedValueOnce({
+        views: 2,
+        maxViews: 5,
+        status: "active" as const,
+        expiresAt: null,
+      });
+
+      const result = await checkStatusHandler({ secret_id: "id", status_token: "tok" });
+      const parsed = JSON.parse(result.content[0].text);
+
+      expect(parsed.success).toBe(true);
+      expect(parsed.message).toContain("2/5");
+      expect(parsed.message).toContain("Still active");
+      expect(parsed.message).toContain("Check again later");
+    });
+
+    it("active with views == maxViews — fully consumed message", async () => {
+      mockCheckSecretStatus.mockResolvedValueOnce({
+        views: 3,
+        maxViews: 3,
+        status: "active" as const,
+        expiresAt: null,
+      });
+
+      const result = await checkStatusHandler({ secret_id: "id", status_token: "tok" });
+      const parsed = JSON.parse(result.content[0].text);
+
+      expect(parsed.success).toBe(true);
+      expect(parsed.message).toContain("fully consumed");
+    });
+
+    it("destroyed with views == 0 — expired before viewed message", async () => {
+      mockCheckSecretStatus.mockResolvedValueOnce({
+        views: 0,
+        maxViews: 1,
+        status: "destroyed" as const,
+        expiresAt: "2026-01-01T00:00:00Z",
+      });
+
+      const result = await checkStatusHandler({ secret_id: "id", status_token: "tok" });
+      const parsed = JSON.parse(result.content[0].text);
+
+      expect(parsed.success).toBe(true);
+      expect(parsed.message).toContain("expired before being viewed");
+    });
+
+    it("destroyed with views > 0 — fully consumed message", async () => {
+      mockCheckSecretStatus.mockResolvedValueOnce({
+        views: 1,
+        maxViews: 1,
+        status: "destroyed" as const,
+        expiresAt: null,
+      });
+
+      const result = await checkStatusHandler({ secret_id: "id", status_token: "tok" });
+      const parsed = JSON.parse(result.content[0].text);
+
+      expect(parsed.success).toBe(true);
+      expect(parsed.message).toContain("fully consumed");
+    });
+  });
+
+  describe("previousViews delta", () => {
+    it("previousViews=0, data.views=1 — includes new view detected message", async () => {
+      mockCheckSecretStatus.mockResolvedValueOnce({
+        views: 1,
+        maxViews: 3,
+        status: "active" as const,
+        expiresAt: null,
+      });
+
+      const result = await checkStatusHandler({
+        secret_id: "id",
+        status_token: "tok",
+        previousViews: 0,
+      });
+      const parsed = JSON.parse(result.content[0].text);
+
+      expect(parsed.success).toBe(true);
+      expect(parsed.message).toContain("New view detected");
+      expect(parsed.message).toContain("0");
+      expect(parsed.message).toContain("1");
+    });
+
+    it("previousViews=1, data.views=1 — no delta message", async () => {
+      mockCheckSecretStatus.mockResolvedValueOnce({
+        views: 1,
+        maxViews: 3,
+        status: "active" as const,
+        expiresAt: null,
+      });
+
+      const result = await checkStatusHandler({
+        secret_id: "id",
+        status_token: "tok",
+        previousViews: 1,
+      });
+      const parsed = JSON.parse(result.content[0].text);
+
+      expect(parsed.success).toBe(true);
+      expect(parsed.message).not.toContain("New view detected");
+    });
+  });
 });

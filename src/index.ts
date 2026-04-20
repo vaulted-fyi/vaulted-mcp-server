@@ -117,11 +117,12 @@ export function createServer(): McpServer {
     {
       title: "Check Status",
       description:
-        "Check the status of a previously shared secret — how many times it's been viewed, whether it's still active, and when it expires. Does not consume a view.",
+        "Check the status of a previously shared secret — how many times it's been viewed, whether it's still active, and when it expires. Does not consume a view. Optionally pass previous_views to detect new views since last check.",
       inputSchema: {
         url: z.string().optional(),
         secret_id: z.string().optional(),
         status_token: z.string().optional(),
+        previous_views: z.number().int().min(0).optional(),
       },
       annotations: {
         readOnlyHint: true,
@@ -129,7 +130,13 @@ export function createServer(): McpServer {
         idempotentHint: true,
       },
     },
-    async (params) => checkStatusHandler(params),
+    async (params) =>
+      checkStatusHandler({
+        url: params.url,
+        secret_id: params.secret_id,
+        status_token: params.status_token,
+        previousViews: params.previous_views,
+      }),
   );
 
   server.registerTool(
