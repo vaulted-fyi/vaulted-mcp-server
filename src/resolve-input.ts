@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
-import { validatePath } from "./path-validator.js";
+import { runCommand } from "./command-runner.js";
 import { errorResult } from "./errors.js";
+import { validatePath } from "./path-validator.js";
 
 export type ResolveInputResult =
   | { success: true; value: string }
@@ -16,7 +17,66 @@ export async function resolveInput(content: string): Promise<ResolveInputResult>
   if (content.startsWith("dotenv:")) {
     return resolveDotenv(content.slice(7));
   }
+  if (content.startsWith("cmd:")) {
+    return resolveCommand(content.slice(4));
+  }
   return { success: true, value: content };
+}
+
+async function resolveCommand(command: string): Promise<ResolveInputResult> {
+  if (!command.trim()) {
+    return {
+      success: false,
+      error: errorResult(
+        "INVALID_INPUT",
+        "Command is empty",
+        "Use format: cmd:<command> (e.g., cmd:aws secretsmanager get-secret-value --secret-id mykey --output text)",
+      ),
+    };
+  }
+
+  try {
+    const { stdout } = await runCommand(command, 10_000);
+    const value = stdout.trim();
+    if (!value) {
+      return {
+        success: false,
+        error: errorResult(
+          "INVALID_INPUT",
+          `Command produced no output: '${command}'`,
+          "Ensure the command prints the secret value to stdout",
+        ),
+      };
+    }
+    return { success: true, value };
+  } catch (err) {
+    const error = err as NodeJS.ErrnoException & {
+      killed?: boolean;
+      stderr?: string;
+    };
+
+    if (error.killed) {
+      return {
+        success: false,
+        error: errorResult(
+          "COMMAND_TIMEOUT",
+          `Command timed out after 10 seconds: '${command}'`,
+          "Ensure the command completes quickly or use a more specific query",
+        ),
+      };
+    }
+
+    const stderr = (error.stderr ?? "").trim();
+    const exitCode = typeof error.code === "number" ? error.code : 1;
+    return {
+      success: false,
+      error: errorResult(
+        "COMMAND_FAILED",
+        `Command failed with exit code ${exitCode}: '${command}'${stderr ? ` — ${stderr}` : ""}`,
+        "Check the command and ensure it exits with code 0",
+      ),
+    };
+  }
 }
 
 function resolveEnv(varName: string): ResolveInputResult {

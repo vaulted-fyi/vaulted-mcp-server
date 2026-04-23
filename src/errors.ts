@@ -12,7 +12,9 @@ export type ErrorCode =
   | "ENCRYPTION_FAILED"
   | "SECRET_NOT_FOUND"
   | "API_ERROR"
-  | "FILE_WRITE_ERROR";
+  | "FILE_WRITE_ERROR"
+  | "COMMAND_FAILED"
+  | "COMMAND_TIMEOUT";
 
 interface ToolResult {
   content: Array<{ type: "text"; text: string }>;

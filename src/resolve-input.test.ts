@@ -7,6 +7,11 @@ vi.mock("./config.js", () => ({
   config: mockConfig,
 }));
 
+vi.mock("./command-runner.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./command-runner.js")>();
+  return { runCommand: vi.fn(actual.runCommand) };
+});
+
 const { resolveInput, parseDotenv } = await import("./resolve-input.js");
 
 function parseError(result: { success: false; error: { content: Array<{ text: string }> } }): {
@@ -141,6 +146,79 @@ describe("resolveInput", () => {
       expect(result.success).toBe(false);
       if (!result.success) {
         expect(parseError(result).code).toBe("FILE_READ_ERROR");
+      }
+    });
+  });
+
+  describe("cmd: prefix", () => {
+    it("resolves cmd:echo hello to 'hello'", async () => {
+      const result = await resolveInput("cmd:echo hello");
+      expect(result).toEqual({ success: true, value: "hello" });
+    });
+
+    it("returns INVALID_INPUT for cmd: with empty command", async () => {
+      const result = await resolveInput("cmd:");
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(parseError(result).code).toBe("INVALID_INPUT");
+      }
+    });
+
+    it("returns COMMAND_FAILED for a failing command", async () => {
+      const result = await resolveInput("cmd:exit 1");
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(parseError(result).code).toBe("COMMAND_FAILED");
+      }
+    });
+
+    it("does not include stdout in COMMAND_FAILED error", async () => {
+      process.env.VAULTED_CMD_TEST_SECRET = "runtime-secret-xk7q2p";
+      try {
+        const result = await resolveInput("cmd:echo $VAULTED_CMD_TEST_SECRET && exit 1");
+        expect(result.success).toBe(false);
+        if (!result.success) {
+          const serialized = JSON.stringify(result.error);
+          expect(serialized).not.toContain("runtime-secret-xk7q2p");
+        }
+      } finally {
+        delete process.env.VAULTED_CMD_TEST_SECRET;
+      }
+    });
+
+    it("supports pipes with shell: true", async () => {
+      const result = await resolveInput('cmd:echo "foo bar" | tr " " "-"');
+      expect(result).toEqual({ success: true, value: "foo-bar" });
+    });
+
+    it("returns INVALID_INPUT for a command that produces no output", async () => {
+      const result = await resolveInput("cmd:true");
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(parseError(result).code).toBe("INVALID_INPUT");
+        expect(parseError(result).message).toContain("no output");
+      }
+    });
+
+    it("returns COMMAND_TIMEOUT when the command is killed", async () => {
+      const { runCommand } = await import("./command-runner.js");
+      vi.mocked(runCommand).mockRejectedValueOnce(
+        Object.assign(new Error("Command timed out"), { killed: true, stderr: "", code: null }),
+      );
+      const result = await resolveInput("cmd:sleep 100");
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(parseError(result).code).toBe("COMMAND_TIMEOUT");
+      }
+    });
+
+    it("does not leak resolved value in any error state", async () => {
+      const result = await resolveInput("cmd:exit 1");
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        const serialized = JSON.stringify(result.error);
+        expect(serialized).not.toMatch(/"success"\s*:\s*true/);
+        expect(serialized).not.toContain('"value"');
       }
     });
   });

@@ -651,7 +651,7 @@ describe("architectural boundary", () => {
     }
   });
 
-  it("only imports node:child_process from src/clipboard.ts", async () => {
+  it("only imports node:child_process from src/clipboard.ts and src/command-runner.ts", async () => {
     const { readdir, readFile } = await import("node:fs/promises");
     const { resolve, dirname } = await import("node:path");
     const { fileURLToPath } = await import("node:url");
@@ -659,10 +659,14 @@ describe("architectural boundary", () => {
     const srcDir = resolve(dirname(fileURLToPath(import.meta.url)));
     const entries = await readdir(srcDir, { recursive: true });
     const tsFiles = entries.filter(
-      (f) => f.endsWith(".ts") && !f.endsWith(".test.ts") && f !== "clipboard.ts",
+      (f) =>
+        f.endsWith(".ts") &&
+        !f.endsWith(".test.ts") &&
+        f !== "clipboard.ts" &&
+        f !== "command-runner.ts",
     );
 
-    const childProcessImport = /^\s*import\s+[^;]*from\s+["']node:child_process/m;
+    const childProcessImport = /^\s*import\s+(?!type\s)[^;]*from\s+["']node:child_process/m;
 
     for (const file of tsFiles) {
       const content = await readFile(resolve(srcDir, file), "utf-8");
