@@ -9,3 +9,11 @@ export async function runCommand(
 ): Promise<{ stdout: string; stderr: string }> {
   return execFileAsync(command, { shell: true, timeout: timeoutMs });
 }
+
+export async function runFile(
+  file: string,
+  args: string[],
+  timeoutMs: number,
+): Promise<{ stdout: string; stderr: string }> {
+  return execFileAsync(file, args, { timeout: timeoutMs });
+}
