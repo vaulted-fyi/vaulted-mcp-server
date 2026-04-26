@@ -6,6 +6,19 @@ import { successResult, errorResult } from "../errors.js";
 import { config } from "../config.js";
 import { parseVaultedUrl } from "../url-parser.js";
 import { copyToClipboard } from "../clipboard.js";
+import { scheduleFileDeletion } from "../file-ttl.js";
+
+function formatDuration(seconds: number): string {
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const secs = seconds % 60;
+
+  const parts: string[] = [];
+  if (hours > 0) parts.push(`${hours} hour${hours === 1 ? "" : "s"}`);
+  if (minutes > 0) parts.push(`${minutes} minute${minutes === 1 ? "" : "s"}`);
+  if (secs > 0 || parts.length === 0) parts.push(`${secs} second${secs === 1 ? "" : "s"}`);
+  return parts.join(" ");
+}
 
 export const VIEW_SECRET_DESCRIPTION =
   "Retrieve and decrypt a secret from a Vaulted secure link. The secret may have view limits and will be destroyed after the maximum views are reached. By default opens in the browser for security — use output_mode to copy to clipboard, save to file, or return directly.";
@@ -17,6 +30,7 @@ export interface ViewSecretParams {
   output_mode?: "browser" | "direct" | "clipboard" | "file";
   passphrase?: string;
   file_path?: string;
+  ttl_seconds?: number;
 }
 
 type HandlerResult = {
@@ -172,22 +186,36 @@ export async function handleViewSecret(params: ViewSecretParams): Promise<Handle
   }
 
   if (mode === "file") {
+    const filePath = params.file_path as string;
     try {
-      await writeFile(params.file_path as string, plaintext, "utf-8");
+      await writeFile(filePath, plaintext, "utf-8");
     } catch (err) {
       return errorResult(
         "FILE_WRITE_ERROR",
-        `Failed to write the secret to ${params.file_path}`,
+        `Failed to write the secret to ${filePath}`,
         `${(err as Error).message}. Check the path is writable and try again.`,
       );
     }
+
+    if (params.ttl_seconds !== undefined) {
+      scheduleFileDeletion(filePath, params.ttl_seconds);
+      return successResult(
+        {
+          mode: "file",
+          filePath,
+          viewsRemaining: apiResponse.viewsRemaining,
+        },
+        `Secret saved to ${filePath}. File will auto-delete in ${formatDuration(params.ttl_seconds)}.`,
+      );
+    }
+
     return successResult(
       {
         mode: "file",
-        filePath: params.file_path,
+        filePath,
         viewsRemaining: apiResponse.viewsRemaining,
       },
-      `Secret saved to ${params.file_path}. The content is not included in this response.`,
+      `Secret saved to ${filePath}. The content is not included in this response.`,
     );
   }
 

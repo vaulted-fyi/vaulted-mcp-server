@@ -102,6 +102,14 @@ export function createServer(): McpServer {
           .string()
           .optional()
           .describe('File path for file output mode (required when output_mode is "file").'),
+        ttl_seconds: z
+          .number()
+          .int()
+          .positive()
+          .optional()
+          .describe(
+            "Optional TTL in seconds — if set, the file is auto-deleted after this duration. Best-effort: if the MCP server process exits before the timer fires, the file will not be deleted.",
+          ),
       },
       annotations: {
         readOnlyHint: false,

@@ -6,6 +6,7 @@ const {
   mockRetrieveSecret,
   mockCopyToClipboard,
   mockWriteFile,
+  mockScheduleFileDeletion,
 } = vi.hoisted(() => ({
   mockOpen: vi.fn(),
   mockImportKey: vi.fn(),
@@ -14,6 +15,7 @@ const {
   mockRetrieveSecret: vi.fn(),
   mockCopyToClipboard: vi.fn(),
   mockWriteFile: vi.fn(),
+  mockScheduleFileDeletion: vi.fn(),
 }));
 
 vi.mock("open", () => ({ default: mockOpen }));
@@ -45,6 +47,10 @@ vi.mock("../clipboard.js", () => ({
 
 vi.mock("node:fs/promises", () => ({
   writeFile: mockWriteFile,
+}));
+
+vi.mock("../file-ttl.js", () => ({
+  scheduleFileDeletion: mockScheduleFileDeletion,
 }));
 
 vi.mock("../config.js", () => ({
@@ -583,6 +589,101 @@ describe("handleViewSecret — file mode", () => {
 
     expect(mockWriteFile).not.toHaveBeenCalled();
     expect(mockRetrieveSecret).not.toHaveBeenCalled();
+  });
+});
+
+describe("handleViewSecret — file mode with ttl_seconds", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockRetrieveSecret.mockResolvedValue({
+      ciphertext: "ct",
+      iv: "iv",
+      hasPassphrase: false,
+      viewsRemaining: 1,
+    });
+    mockImportKey.mockResolvedValue("ck");
+    mockDecrypt.mockResolvedValue("ttl-plaintext");
+    mockWriteFile.mockResolvedValue(undefined);
+  });
+
+  it("schedules file deletion when ttl_seconds is provided and includes formatted duration in message", async () => {
+    const result = await handleViewSecret({
+      url: "https://vaulted.fyi/s/abc#mykey",
+      output_mode: "file",
+      file_path: "/tmp/secret.txt",
+      ttl_seconds: 300,
+    });
+    const parsed = parseResult(result);
+
+    expect(mockScheduleFileDeletion).toHaveBeenCalledWith("/tmp/secret.txt", 300);
+    expect(parsed.success).toBe(true);
+    expect(parsed.message).toContain("/tmp/secret.txt");
+    expect(parsed.message).toContain("auto-delete");
+    expect(parsed.message).toContain("5 minutes");
+  });
+
+  it("does NOT schedule deletion when ttl_seconds is omitted (existing behavior unchanged)", async () => {
+    const result = await handleViewSecret({
+      url: "https://vaulted.fyi/s/abc#mykey",
+      output_mode: "file",
+      file_path: "/tmp/secret.txt",
+    });
+    const parsed = parseResult(result);
+
+    expect(mockScheduleFileDeletion).not.toHaveBeenCalled();
+    expect(parsed.success).toBe(true);
+    expect(parsed.message).not.toContain("auto-delete");
+  });
+
+  it.each([
+    [60, "1 minute"],
+    [120, "2 minutes"],
+    [3600, "1 hour"],
+    [90, "1 minute 30 seconds"],
+    [1, "1 second"],
+    [45, "45 seconds"],
+    [7200, "2 hours"],
+    [3660, "1 hour 1 minute"],
+    [3661, "1 hour 1 minute 1 second"],
+  ])("formats ttl_seconds=%d as %s in success message", async (ttl, expected) => {
+    const result = await handleViewSecret({
+      url: "https://vaulted.fyi/s/abc#mykey",
+      output_mode: "file",
+      file_path: "/tmp/secret.txt",
+      ttl_seconds: ttl,
+    });
+    const parsed = parseResult(result);
+
+    expect(parsed.success).toBe(true);
+    expect(parsed.message).toContain(expected);
+  });
+
+  it("never includes the decrypted content in the response when TTL mode is used", async () => {
+    const result = await handleViewSecret({
+      url: "https://vaulted.fyi/s/abc#mykey",
+      output_mode: "file",
+      file_path: "/tmp/secret.txt",
+      ttl_seconds: 60,
+    });
+
+    expect(result.content[0].text).not.toContain("ttl-plaintext");
+  });
+
+  it("does NOT schedule deletion when writeFile fails before the timer is set", async () => {
+    mockWriteFile.mockReset();
+    mockWriteFile.mockRejectedValueOnce(new Error("EACCES"));
+
+    const result = await handleViewSecret({
+      url: "https://vaulted.fyi/s/abc#mykey",
+      output_mode: "file",
+      file_path: "/root/locked.txt",
+      ttl_seconds: 60,
+    });
+    const parsed = parseResult(result);
+
+    expect(mockScheduleFileDeletion).not.toHaveBeenCalled();
+    expect(parsed.success).toBe(false);
+    expect(parsed.error.code).toBe("FILE_WRITE_ERROR");
   });
 });
 
