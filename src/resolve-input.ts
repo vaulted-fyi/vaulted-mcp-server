@@ -86,6 +86,16 @@ async function resolveCommand(command: string): Promise<ResolveInputResult> {
 }
 
 async function resolveOp(itemPath: string): Promise<ResolveInputResult> {
+  if (!itemPath.trim()) {
+    return {
+      success: false,
+      error: errorResult(
+        "INVALID_INPUT",
+        "1Password item path is empty",
+        "Use format: op:<vault>/<item> (e.g., op:Private/Stripe API Key)",
+      ),
+    };
+  }
   const ref = `op://${itemPath}`;
   try {
     const { stdout } = await runFile("op", ["read", ref], 10_000);
@@ -98,6 +108,16 @@ async function resolveOp(itemPath: string): Promise<ResolveInputResult> {
           "OP_NOT_FOUND",
           "1Password CLI (op) not found.",
           "Install it from https://1password.com/downloads/cli",
+        ),
+      };
+    }
+    if (isKilled(err)) {
+      return {
+        success: false,
+        error: errorResult(
+          "COMMAND_TIMEOUT",
+          "op read timed out after 10 seconds",
+          "Ensure 1Password CLI is signed in and the item path is correct",
         ),
       };
     }
@@ -114,6 +134,16 @@ async function resolveOp(itemPath: string): Promise<ResolveInputResult> {
 }
 
 async function resolveKeychain(serviceName: string): Promise<ResolveInputResult> {
+  if (!serviceName.trim()) {
+    return {
+      success: false,
+      error: errorResult(
+        "INVALID_INPUT",
+        "Keychain service name is empty",
+        "Use format: keychain:<service> (e.g., keychain:MyDatabasePassword)",
+      ),
+    };
+  }
   if (process.platform !== "darwin") {
     return {
       success: false,
@@ -132,6 +162,16 @@ async function resolveKeychain(serviceName: string): Promise<ResolveInputResult>
     );
     return { success: true, value: stdout.trim() };
   } catch (err: unknown) {
+    if (isKilled(err)) {
+      return {
+        success: false,
+        error: errorResult(
+          "COMMAND_TIMEOUT",
+          "security find-generic-password timed out after 10 seconds",
+          "Ensure keychain access is not blocked",
+        ),
+      };
+    }
     const exitCode = extractExitCode(err);
     if (exitCode === 44) {
       return {
@@ -159,6 +199,10 @@ function isEnoent(err: unknown): boolean {
   return (
     typeof err === "object" && err !== null && (err as NodeJS.ErrnoException).code === "ENOENT"
   );
+}
+
+function isKilled(err: unknown): boolean {
+  return typeof err === "object" && err !== null && (err as { killed?: boolean }).killed === true;
 }
 
 function extractStderr(err: unknown): string {

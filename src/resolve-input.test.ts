@@ -285,7 +285,7 @@ describe("resolveInput", () => {
       }
     });
 
-    it("returns COMMAND_FAILED when op times out (10-second timeout)", async () => {
+    it("returns COMMAND_TIMEOUT when op times out (10-second timeout)", async () => {
       const { runFile } = await import("./command-runner.js");
       vi.mocked(runFile).mockRejectedValueOnce(
         Object.assign(new Error("Command timed out"), {
@@ -297,7 +297,15 @@ describe("resolveInput", () => {
       const result = await resolveInput("op:Vault/SlowItem");
       expect(result.success).toBe(false);
       if (!result.success) {
-        expect(parseError(result).code).toBe("COMMAND_FAILED");
+        expect(parseError(result).code).toBe("COMMAND_TIMEOUT");
+      }
+    });
+
+    it("returns INVALID_INPUT when op: has no item path", async () => {
+      const result = await resolveInput("op:");
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(parseError(result).code).toBe("INVALID_INPUT");
       }
     });
   });
@@ -370,6 +378,30 @@ describe("resolveInput", () => {
       if (!result.success) {
         const serialized = JSON.stringify(result.error);
         expect(serialized).not.toContain("partial-secret-xk7q2p");
+      }
+    });
+
+    it("returns COMMAND_TIMEOUT when security times out", async () => {
+      const { runFile } = await import("./command-runner.js");
+      vi.mocked(runFile).mockRejectedValueOnce(
+        Object.assign(new Error("Command timed out"), {
+          killed: true,
+          signal: "SIGTERM",
+          code: null,
+        }),
+      );
+      const result = await resolveInput("keychain:MyService");
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(parseError(result).code).toBe("COMMAND_TIMEOUT");
+      }
+    });
+
+    it("returns INVALID_INPUT when keychain: has no service name", async () => {
+      const result = await resolveInput("keychain:");
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(parseError(result).code).toBe("INVALID_INPUT");
       }
     });
   });
