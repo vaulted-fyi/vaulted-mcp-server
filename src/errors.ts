@@ -14,7 +14,10 @@ export type ErrorCode =
   | "API_ERROR"
   | "FILE_WRITE_ERROR"
   | "COMMAND_FAILED"
-  | "COMMAND_TIMEOUT";
+  | "COMMAND_TIMEOUT"
+  | "OP_NOT_FOUND"
+  | "KEYCHAIN_NOT_FOUND"
+  | "PLATFORM_NOT_SUPPORTED";
 
 interface ToolResult {
   content: Array<{ type: "text"; text: string }>;

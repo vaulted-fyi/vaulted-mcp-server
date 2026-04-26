@@ -1,5 +1,5 @@
 import { readFile } from "node:fs/promises";
-import { runCommand } from "./command-runner.js";
+import { runCommand, runFile } from "./command-runner.js";
 import { errorResult } from "./errors.js";
 import { validatePath } from "./path-validator.js";
 
@@ -19,6 +19,12 @@ export async function resolveInput(content: string): Promise<ResolveInputResult>
   }
   if (content.startsWith("cmd:")) {
     return resolveCommand(content.slice(4));
+  }
+  if (content.startsWith("op:")) {
+    return resolveOp(content.slice(3));
+  }
+  if (content.startsWith("keychain:")) {
+    return resolveKeychain(content.slice(9));
   }
   return { success: true, value: content };
 }
@@ -77,6 +83,141 @@ async function resolveCommand(command: string): Promise<ResolveInputResult> {
       ),
     };
   }
+}
+
+async function resolveOp(itemPath: string): Promise<ResolveInputResult> {
+  if (!itemPath.trim()) {
+    return {
+      success: false,
+      error: errorResult(
+        "INVALID_INPUT",
+        "1Password item path is empty",
+        "Use format: op:<vault>/<item> (e.g., op:Private/Stripe API Key)",
+      ),
+    };
+  }
+  const ref = `op://${itemPath}`;
+  try {
+    const { stdout } = await runFile("op", ["read", ref], 10_000);
+    return { success: true, value: stdout.trim() };
+  } catch (err: unknown) {
+    if (isEnoent(err)) {
+      return {
+        success: false,
+        error: errorResult(
+          "OP_NOT_FOUND",
+          "1Password CLI (op) not found.",
+          "Install it from https://1password.com/downloads/cli",
+        ),
+      };
+    }
+    if (isKilled(err)) {
+      return {
+        success: false,
+        error: errorResult(
+          "COMMAND_TIMEOUT",
+          "op read timed out after 10 seconds",
+          "Ensure 1Password CLI is signed in and the item path is correct",
+        ),
+      };
+    }
+    const stderr = extractStderr(err);
+    return {
+      success: false,
+      error: errorResult(
+        "COMMAND_FAILED",
+        `op read failed: ${stderr}`,
+        "Check the item path and ensure you are signed in to 1Password CLI (op signin)",
+      ),
+    };
+  }
+}
+
+async function resolveKeychain(serviceName: string): Promise<ResolveInputResult> {
+  if (!serviceName.trim()) {
+    return {
+      success: false,
+      error: errorResult(
+        "INVALID_INPUT",
+        "Keychain service name is empty",
+        "Use format: keychain:<service> (e.g., keychain:MyDatabasePassword)",
+      ),
+    };
+  }
+  if (process.platform !== "darwin") {
+    return {
+      success: false,
+      error: errorResult(
+        "PLATFORM_NOT_SUPPORTED",
+        "Keychain access is only supported on macOS.",
+        "Use env:, file:, or op: as alternative input sources on this platform",
+      ),
+    };
+  }
+  try {
+    const { stdout } = await runFile(
+      "security",
+      ["find-generic-password", "-s", serviceName, "-w"],
+      10_000,
+    );
+    return { success: true, value: stdout.trim() };
+  } catch (err: unknown) {
+    if (isKilled(err)) {
+      return {
+        success: false,
+        error: errorResult(
+          "COMMAND_TIMEOUT",
+          "security find-generic-password timed out after 10 seconds",
+          "Ensure keychain access is not blocked",
+        ),
+      };
+    }
+    const exitCode = extractExitCode(err);
+    if (exitCode === 44) {
+      return {
+        success: false,
+        error: errorResult(
+          "KEYCHAIN_NOT_FOUND",
+          `Keychain item '${serviceName}' not found.`,
+          "Check the service name in Keychain Access (Applications > Utilities > Keychain Access)",
+        ),
+      };
+    }
+    const stderr = extractStderr(err);
+    return {
+      success: false,
+      error: errorResult(
+        "COMMAND_FAILED",
+        `security find-generic-password failed: ${stderr}`,
+        "Ensure the service name is correct and keychain access is not denied",
+      ),
+    };
+  }
+}
+
+function isEnoent(err: unknown): boolean {
+  return (
+    typeof err === "object" && err !== null && (err as NodeJS.ErrnoException).code === "ENOENT"
+  );
+}
+
+function isKilled(err: unknown): boolean {
+  return typeof err === "object" && err !== null && (err as { killed?: boolean }).killed === true;
+}
+
+function extractStderr(err: unknown): string {
+  if (typeof err === "object" && err !== null && "stderr" in err) {
+    return String((err as { stderr: string }).stderr).trim();
+  }
+  return "unknown error";
+}
+
+function extractExitCode(err: unknown): number | undefined {
+  if (typeof err === "object" && err !== null && "code" in err) {
+    const code = (err as { code: unknown }).code;
+    return typeof code === "number" ? code : undefined;
+  }
+  return undefined;
 }
 
 function resolveEnv(varName: string): ResolveInputResult {

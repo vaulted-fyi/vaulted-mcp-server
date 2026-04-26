@@ -9,7 +9,7 @@ vi.mock("./config.js", () => ({
 
 vi.mock("./command-runner.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./command-runner.js")>();
-  return { runCommand: vi.fn(actual.runCommand) };
+  return { runCommand: vi.fn(actual.runCommand), runFile: vi.fn(actual.runFile) };
 });
 
 const { resolveInput, parseDotenv } = await import("./resolve-input.js");
@@ -227,6 +227,186 @@ describe("resolveInput", () => {
     it("returns content as-is when no recognized prefix matches", async () => {
       const result = await resolveInput("some plain secret value");
       expect(result).toEqual({ success: true, value: "some plain secret value" });
+    });
+  });
+
+  describe("op: prefix", () => {
+    it("resolves op:Private/Stripe API Key by calling op read with the full reference", async () => {
+      const { runFile } = await import("./command-runner.js");
+      vi.mocked(runFile).mockResolvedValueOnce({ stdout: "sk_live_abc123\n", stderr: "" });
+      const result = await resolveInput("op:Private/Stripe API Key");
+      expect(result).toEqual({ success: true, value: "sk_live_abc123" });
+      expect(vi.mocked(runFile)).toHaveBeenCalledWith(
+        "op",
+        ["read", "op://Private/Stripe API Key"],
+        10_000,
+      );
+    });
+
+    it("calls runFile not runCommand (no shell injection risk)", async () => {
+      const { runFile, runCommand } = await import("./command-runner.js");
+      vi.mocked(runFile).mockClear();
+      vi.mocked(runCommand).mockClear();
+      vi.mocked(runFile).mockResolvedValueOnce({ stdout: "secret\n", stderr: "" });
+      await resolveInput("op:Vault/Item");
+      expect(vi.mocked(runFile)).toHaveBeenCalledTimes(1);
+      expect(vi.mocked(runCommand)).toHaveBeenCalledTimes(0);
+    });
+
+    it("returns OP_NOT_FOUND when op binary is not on PATH", async () => {
+      const { runFile } = await import("./command-runner.js");
+      vi.mocked(runFile).mockRejectedValueOnce(
+        Object.assign(new Error("spawn op ENOENT"), { code: "ENOENT" }),
+      );
+      const result = await resolveInput("op:Vault/Item");
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(parseError(result).code).toBe("OP_NOT_FOUND");
+        expect(parseError(result).message).toContain("1Password CLI");
+      }
+    });
+
+    it("returns COMMAND_FAILED with stderr (not stdout) when op exits non-zero", async () => {
+      const { runFile } = await import("./command-runner.js");
+      vi.mocked(runFile).mockRejectedValueOnce(
+        Object.assign(new Error("Command failed"), {
+          code: 1,
+          stdout: "partial-secret-in-stdout",
+          stderr: "[ERROR] 401 Unauthorized",
+        }),
+      );
+      const result = await resolveInput("op:Vault/Item");
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(parseError(result).code).toBe("COMMAND_FAILED");
+        const serialized = JSON.stringify(result.error);
+        expect(serialized).not.toContain("partial-secret-in-stdout");
+        expect(serialized).toContain("Unauthorized");
+      }
+    });
+
+    it("returns COMMAND_TIMEOUT when op times out (10-second timeout)", async () => {
+      const { runFile } = await import("./command-runner.js");
+      vi.mocked(runFile).mockRejectedValueOnce(
+        Object.assign(new Error("Command timed out"), {
+          killed: true,
+          signal: "SIGTERM",
+          code: null,
+        }),
+      );
+      const result = await resolveInput("op:Vault/SlowItem");
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(parseError(result).code).toBe("COMMAND_TIMEOUT");
+      }
+    });
+
+    it("returns INVALID_INPUT when op: has no item path", async () => {
+      const result = await resolveInput("op:");
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(parseError(result).code).toBe("INVALID_INPUT");
+      }
+    });
+  });
+
+  describe("keychain: prefix", () => {
+    beforeEach(() => {
+      vi.stubGlobal("process", { ...process, platform: "darwin" });
+    });
+
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    it("resolves keychain:MyService on macOS by calling security find-generic-password", async () => {
+      const { runFile } = await import("./command-runner.js");
+      vi.mocked(runFile).mockResolvedValueOnce({ stdout: "db-password-123\n", stderr: "" });
+      const result = await resolveInput("keychain:MyService");
+      expect(result).toEqual({ success: true, value: "db-password-123" });
+      expect(vi.mocked(runFile)).toHaveBeenCalledWith(
+        "security",
+        ["find-generic-password", "-s", "MyService", "-w"],
+        10_000,
+      );
+    });
+
+    it("returns PLATFORM_NOT_SUPPORTED on non-macOS platforms", async () => {
+      vi.stubGlobal("process", { ...process, platform: "linux" });
+      const result = await resolveInput("keychain:MyService");
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(parseError(result).code).toBe("PLATFORM_NOT_SUPPORTED");
+      }
+    });
+
+    it("returns KEYCHAIN_NOT_FOUND when security exits with code 44", async () => {
+      const { runFile } = await import("./command-runner.js");
+      vi.mocked(runFile).mockRejectedValueOnce(
+        Object.assign(new Error("Command failed"), {
+          code: 44,
+          stderr: "SecKeychainSearchCopyNext",
+        }),
+      );
+      const result = await resolveInput("keychain:MissingService");
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(parseError(result).code).toBe("KEYCHAIN_NOT_FOUND");
+        expect(parseError(result).message).toContain("MissingService");
+      }
+    });
+
+    it("returns COMMAND_FAILED for other non-zero exit codes from security", async () => {
+      const { runFile } = await import("./command-runner.js");
+      vi.mocked(runFile).mockRejectedValueOnce(
+        Object.assign(new Error("Command failed"), { code: 1, stderr: "access denied" }),
+      );
+      const result = await resolveInput("keychain:MyService");
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(parseError(result).code).toBe("COMMAND_FAILED");
+      }
+    });
+
+    it("never includes the resolved value in any error response", async () => {
+      const { runFile } = await import("./command-runner.js");
+      vi.mocked(runFile).mockRejectedValueOnce(
+        Object.assign(new Error("Command failed"), {
+          code: 1,
+          stdout: "partial-secret-xk7q2p",
+          stderr: "some error",
+        }),
+      );
+      const result = await resolveInput("keychain:MyService");
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        const serialized = JSON.stringify(result.error);
+        expect(serialized).not.toContain("partial-secret-xk7q2p");
+      }
+    });
+
+    it("returns COMMAND_TIMEOUT when security times out", async () => {
+      const { runFile } = await import("./command-runner.js");
+      vi.mocked(runFile).mockRejectedValueOnce(
+        Object.assign(new Error("Command timed out"), {
+          killed: true,
+          signal: "SIGTERM",
+          code: null,
+        }),
+      );
+      const result = await resolveInput("keychain:MyService");
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(parseError(result).code).toBe("COMMAND_TIMEOUT");
+      }
+    });
+
+    it("returns INVALID_INPUT when keychain: has no service name", async () => {
+      const result = await resolveInput("keychain:");
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(parseError(result).code).toBe("INVALID_INPUT");
+      }
     });
   });
 
