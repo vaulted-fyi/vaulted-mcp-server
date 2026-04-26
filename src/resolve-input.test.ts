@@ -311,6 +311,10 @@ describe("resolveInput", () => {
   });
 
   describe("keychain: prefix", () => {
+    beforeEach(() => {
+      vi.stubGlobal("process", { ...process, platform: "darwin" });
+    });
+
     afterEach(() => {
       vi.unstubAllGlobals();
     });
