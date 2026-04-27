@@ -51,7 +51,7 @@ vi.mock("node:fs/promises", async (importOriginal) => {
 });
 
 vi.mock("./config.js", () => ({
-  config: { baseUrl: "https://vaulted.fyi", allowedDirs: [] },
+  config: { baseUrl: "https://vaulted.fyi", allowedDirs: ["/tmp", "/private/tmp"] },
 }));
 
 const { createServer, VERSION } = await import("./index.js");
@@ -416,6 +416,60 @@ describe("view_secret integration via MCP client", () => {
     expect(parsed.data.filePath).toBe("/tmp/integration-test.txt");
     expect(mockWriteFile).toHaveBeenCalledWith("/tmp/integration-test.txt", plaintext, "utf-8");
     expect(text).not.toContain(plaintext);
+  });
+
+  it("rejects view_secret with file_path outside allowed-dirs (PATH_TRAVERSAL_BLOCKED)", async () => {
+    mockWriteFile.mockClear();
+
+    const result = await client.callTool({
+      name: "view_secret",
+      arguments: {
+        url: "https://vaulted.fyi/s/abc#mykey",
+        output_mode: "file",
+        file_path: "/etc/passwd",
+      },
+    });
+    const text = (result.content as Array<{ type: string; text: string }>)[0].text;
+    const parsed = JSON.parse(text);
+
+    expect(parsed.success).toBe(false);
+    expect(parsed.error.code).toBe("PATH_TRAVERSAL_BLOCKED");
+    expect(mockWriteFile).not.toHaveBeenCalled();
+  });
+
+  it("documents the best-effort caveat in the ttl_seconds parameter description (AC #2)", async () => {
+    const { tools } = await client.listTools();
+    const tool = tools.find((t) => t.name === "view_secret");
+    const ttlSchema = (
+      tool?.inputSchema as {
+        properties?: { ttl_seconds?: { description?: string } };
+      }
+    )?.properties?.ttl_seconds;
+
+    expect(ttlSchema?.description).toBeDefined();
+    expect(ttlSchema?.description).toMatch(/best-effort/i);
+    expect(ttlSchema?.description?.toLowerCase()).toContain("process exits");
+  });
+
+  it("rejects ttl_seconds above the setTimeout 32-bit signed limit (~24.8 days)", async () => {
+    // 2_147_484 seconds → > 2^31-1 ms; without a max, Node would silently fire on the next tick
+    mockWriteFile.mockClear();
+
+    const result = await client.callTool({
+      name: "view_secret",
+      arguments: {
+        url: "https://vaulted.fyi/s/abc#mykey",
+        output_mode: "file",
+        file_path: "/tmp/safe.txt",
+        ttl_seconds: 2_147_484,
+      },
+    });
+    const text = (result.content as Array<{ type: string; text: string }>)[0].text;
+
+    expect(result.isError).toBe(true);
+    expect(text).toMatch(/ttl_seconds/);
+    expect(text).toMatch(/2147483|too_big|too big/i);
+    expect(mockWriteFile).not.toHaveBeenCalled();
   });
 });
 

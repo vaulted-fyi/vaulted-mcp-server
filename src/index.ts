@@ -102,6 +102,15 @@ export function createServer(): McpServer {
           .string()
           .optional()
           .describe('File path for file output mode (required when output_mode is "file").'),
+        ttl_seconds: z
+          .number()
+          .int()
+          .positive()
+          .max(2_147_483)
+          .optional()
+          .describe(
+            "Optional TTL in seconds — if set, the file is auto-deleted after this duration. Maximum 2147483 seconds (~24.8 days, the Node.js setTimeout limit). Best-effort: if the MCP server process exits before the timer fires, the file will not be deleted.",
+          ),
       },
       annotations: {
         readOnlyHint: false,
