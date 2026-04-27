@@ -414,7 +414,10 @@ describe("view_secret integration via MCP client", () => {
     expect(parsed.success).toBe(true);
     expect(parsed.data.mode).toBe("file");
     expect(parsed.data.filePath).toBe("/tmp/integration-test.txt");
-    expect(mockWriteFile).toHaveBeenCalledWith("/tmp/integration-test.txt", plaintext, "utf-8");
+    expect(mockWriteFile).toHaveBeenCalledWith("/tmp/integration-test.txt", plaintext, {
+      encoding: "utf-8",
+      flag: "wx",
+    });
     expect(text).not.toContain(plaintext);
   });
 

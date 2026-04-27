@@ -196,8 +196,20 @@ export async function handleViewSecret(params: ViewSecretParams): Promise<Handle
   if (mode === "file") {
     const filePath = validatedFilePath as string;
     try {
-      await writeFile(filePath, plaintext, "utf-8");
+      // flag: "wx" → exclusive create. Refuses to write if the path exists, including
+      // when the path is a symlink (POSIX O_EXCL behavior). This closes a TOCTOU window
+      // between validatePath() and writeFile() where a local attacker could place a
+      // symlink to redirect the decrypted plaintext outside the allowed dirs.
+      await writeFile(filePath, plaintext, { encoding: "utf-8", flag: "wx" });
     } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code === "EEXIST" || code === "ELOOP") {
+        return errorResult(
+          "FILE_WRITE_ERROR",
+          `Refused to write the secret to ${filePath} — path already exists`,
+          "Choose a path that does not yet exist. Auto-expiring file output refuses to overwrite to avoid following a symlink to an unintended target.",
+        );
+      }
       return errorResult(
         "FILE_WRITE_ERROR",
         `Failed to write the secret to ${filePath}`,
@@ -213,7 +225,7 @@ export async function handleViewSecret(params: ViewSecretParams): Promise<Handle
           filePath,
           viewsRemaining: apiResponse.viewsRemaining,
         },
-        `Secret saved to ${filePath}. File will auto-delete in ${formatDuration(params.ttl_seconds)}.`,
+        `Secret saved to ${filePath}. File will auto-delete in ${formatDuration(params.ttl_seconds)} (best-effort, while this MCP server is running).`,
       );
     }
 
