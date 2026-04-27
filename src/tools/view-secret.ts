@@ -7,6 +7,7 @@ import { config } from "../config.js";
 import { parseVaultedUrl } from "../url-parser.js";
 import { copyToClipboard } from "../clipboard.js";
 import { scheduleFileDeletion } from "../file-ttl.js";
+import { validatePath } from "../path-validator.js";
 
 function formatDuration(seconds: number): string {
   const hours = Math.floor(seconds / 3600);
@@ -67,6 +68,13 @@ export async function handleViewSecret(params: ViewSecretParams): Promise<Handle
       "file_path is required when output_mode is 'file'",
       "Provide file_path, or use output_mode 'browser', 'direct', or 'clipboard'",
     );
+  }
+
+  let validatedFilePath: string | undefined;
+  if (mode === "file") {
+    const validated = await validatePath(params.file_path as string);
+    if (!validated.valid) return validated.error;
+    validatedFilePath = validated.resolvedPath;
   }
 
   const resolved = resolveIdAndKey(params);
@@ -186,7 +194,7 @@ export async function handleViewSecret(params: ViewSecretParams): Promise<Handle
   }
 
   if (mode === "file") {
-    const filePath = params.file_path as string;
+    const filePath = validatedFilePath as string;
     try {
       await writeFile(filePath, plaintext, "utf-8");
     } catch (err) {

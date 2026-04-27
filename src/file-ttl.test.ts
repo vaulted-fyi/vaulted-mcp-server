@@ -32,16 +32,23 @@ describe("scheduleFileDeletion", () => {
     expect(mockUnlink).toHaveBeenCalledTimes(1);
   });
 
-  it("swallows errors from unlink (best-effort cleanup)", async () => {
+  it("swallows unlink rejection without producing an unhandled rejection", async () => {
+    // Use real timers so process.on("unhandledRejection") fires naturally —
+    // fake timers also fake setImmediate/queueMicrotask, blocking the rejection-flush tick.
+    vi.useRealTimers();
     mockUnlink.mockRejectedValueOnce(new Error("ENOENT: file already gone"));
+    const handler = vi.fn();
+    process.on("unhandledRejection", handler);
 
-    expect(() => {
-      scheduleFileDeletion("/tmp/missing.txt", 60);
-      vi.advanceTimersByTime(60_000);
-    }).not.toThrow();
+    try {
+      scheduleFileDeletion("/tmp/missing.txt", 0.001);
+      await new Promise((resolve) => setTimeout(resolve, 50));
 
-    await vi.runAllTimersAsync();
-    expect(mockUnlink).toHaveBeenCalledWith("/tmp/missing.txt");
+      expect(mockUnlink).toHaveBeenCalledWith("/tmp/missing.txt");
+      expect(handler).not.toHaveBeenCalled();
+    } finally {
+      process.off("unhandledRejection", handler);
+    }
   });
 
   it("schedules independent timers for multiple calls", () => {
@@ -60,5 +67,26 @@ describe("scheduleFileDeletion", () => {
   it("returns void (fire-and-forget — no handle exposed)", () => {
     const result = scheduleFileDeletion("/tmp/x.txt", 10);
     expect(result).toBeUndefined();
+  });
+});
+
+describe("scheduleFileDeletion — process lifecycle (unref)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockUnlink.mockResolvedValue(undefined);
+  });
+
+  it("calls unref() on the timer so a pending deletion does not hold the event loop open", () => {
+    const unrefSpy = vi.fn();
+    const fakeTimer = { unref: unrefSpy } as unknown as NodeJS.Timeout;
+    const setTimeoutSpy = vi.spyOn(globalThis, "setTimeout").mockReturnValueOnce(fakeTimer);
+
+    try {
+      scheduleFileDeletion("/tmp/x.txt", 10);
+      expect(setTimeoutSpy).toHaveBeenCalledTimes(1);
+      expect(unrefSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      setTimeoutSpy.mockRestore();
+    }
   });
 });

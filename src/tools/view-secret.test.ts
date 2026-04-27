@@ -7,6 +7,7 @@ const {
   mockCopyToClipboard,
   mockWriteFile,
   mockScheduleFileDeletion,
+  mockValidatePath,
 } = vi.hoisted(() => ({
   mockOpen: vi.fn(),
   mockImportKey: vi.fn(),
@@ -16,6 +17,7 @@ const {
   mockCopyToClipboard: vi.fn(),
   mockWriteFile: vi.fn(),
   mockScheduleFileDeletion: vi.fn(),
+  mockValidatePath: vi.fn(),
 }));
 
 vi.mock("open", () => ({ default: mockOpen }));
@@ -51,6 +53,10 @@ vi.mock("node:fs/promises", () => ({
 
 vi.mock("../file-ttl.js", () => ({
   scheduleFileDeletion: mockScheduleFileDeletion,
+}));
+
+vi.mock("../path-validator.js", () => ({
+  validatePath: mockValidatePath,
 }));
 
 vi.mock("../config.js", () => ({
@@ -523,6 +529,10 @@ describe("handleViewSecret — file mode", () => {
     });
     mockImportKey.mockResolvedValue("ck");
     mockDecrypt.mockResolvedValue("file-plaintext");
+    mockValidatePath.mockImplementation(async (p: string) => ({
+      valid: true,
+      resolvedPath: p,
+    }));
   });
 
   it("writes plaintext to file_path via node:fs/promises writeFile; response omits content", async () => {
@@ -590,6 +600,54 @@ describe("handleViewSecret — file mode", () => {
     expect(mockWriteFile).not.toHaveBeenCalled();
     expect(mockRetrieveSecret).not.toHaveBeenCalled();
   });
+
+  it("returns PATH_TRAVERSAL_BLOCKED and does NOT decrypt or write when file_path fails validation", async () => {
+    const { errorResult } = await import("../errors.js");
+    mockValidatePath.mockImplementationOnce(async () => ({
+      valid: false,
+      error: errorResult(
+        "PATH_TRAVERSAL_BLOCKED",
+        "Path resolves outside the allowed directories",
+        "File access is restricted to the current working directory.",
+      ),
+    }));
+
+    const result = await handleViewSecret({
+      url: "https://vaulted.fyi/s/abc#mykey",
+      output_mode: "file",
+      file_path: "/etc/passwd",
+    });
+    const parsed = parseResult(result);
+
+    expect(parsed.success).toBe(false);
+    expect(parsed.error.code).toBe("PATH_TRAVERSAL_BLOCKED");
+    expect(result.isError).toBe(true);
+    expect(mockValidatePath).toHaveBeenCalledWith("/etc/passwd");
+    expect(mockRetrieveSecret).not.toHaveBeenCalled();
+    expect(mockDecrypt).not.toHaveBeenCalled();
+    expect(mockWriteFile).not.toHaveBeenCalled();
+    expect(mockScheduleFileDeletion).not.toHaveBeenCalled();
+  });
+
+  it("uses the canonical resolvedPath from validatePath (not the raw user-supplied path) for write and unlink scheduling", async () => {
+    mockValidatePath.mockImplementationOnce(async () => ({
+      valid: true,
+      resolvedPath: "/canonical/secret.txt",
+    }));
+    mockWriteFile.mockResolvedValueOnce(undefined);
+
+    const result = await handleViewSecret({
+      url: "https://vaulted.fyi/s/abc#mykey",
+      output_mode: "file",
+      file_path: "./symlink-to-canonical.txt",
+      ttl_seconds: 60,
+    });
+    const parsed = parseResult(result);
+
+    expect(mockWriteFile).toHaveBeenCalledWith("/canonical/secret.txt", "file-plaintext", "utf-8");
+    expect(mockScheduleFileDeletion).toHaveBeenCalledWith("/canonical/secret.txt", 60);
+    expect(parsed.data.filePath).toBe("/canonical/secret.txt");
+  });
 });
 
 describe("handleViewSecret — file mode with ttl_seconds", () => {
@@ -604,6 +662,10 @@ describe("handleViewSecret — file mode with ttl_seconds", () => {
     mockImportKey.mockResolvedValue("ck");
     mockDecrypt.mockResolvedValue("ttl-plaintext");
     mockWriteFile.mockResolvedValue(undefined);
+    mockValidatePath.mockImplementation(async (p: string) => ({
+      valid: true,
+      resolvedPath: p,
+    }));
   });
 
   it("schedules file deletion when ttl_seconds is provided and includes formatted duration in message", async () => {
