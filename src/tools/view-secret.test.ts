@@ -545,7 +545,10 @@ describe("handleViewSecret — file mode", () => {
     });
     const parsed = parseResult(result);
 
-    expect(mockWriteFile).toHaveBeenCalledWith("/tmp/secret.txt", "file-plaintext", "utf-8");
+    expect(mockWriteFile).toHaveBeenCalledWith("/tmp/secret.txt", "file-plaintext", {
+      encoding: "utf-8",
+      flag: "wx",
+    });
     expect(parsed.success).toBe(true);
     expect(parsed.data.mode).toBe("file");
     expect(parsed.data.filePath).toBe("/tmp/secret.txt");
@@ -588,7 +591,10 @@ describe("handleViewSecret — file mode", () => {
     });
 
     expect(mockUnwrapKeyWithPassphrase).toHaveBeenCalledWith("wrapped", "salt", "pw");
-    expect(mockWriteFile).toHaveBeenCalledWith("/tmp/out.txt", "pf-payload", "utf-8");
+    expect(mockWriteFile).toHaveBeenCalledWith("/tmp/out.txt", "pf-payload", {
+      encoding: "utf-8",
+      flag: "wx",
+    });
   });
 
   it("does NOT call writeFile when file_path is missing (validation runs first)", async () => {
@@ -644,9 +650,65 @@ describe("handleViewSecret — file mode", () => {
     });
     const parsed = parseResult(result);
 
-    expect(mockWriteFile).toHaveBeenCalledWith("/canonical/secret.txt", "file-plaintext", "utf-8");
+    expect(mockWriteFile).toHaveBeenCalledWith("/canonical/secret.txt", "file-plaintext", {
+      encoding: "utf-8",
+      flag: "wx",
+    });
     expect(mockScheduleFileDeletion).toHaveBeenCalledWith("/canonical/secret.txt", 60);
     expect(parsed.data.filePath).toBe("/canonical/secret.txt");
+  });
+
+  it("refuses to overwrite an existing path (EEXIST → FILE_WRITE_ERROR with overwrite-refused suggestion)", async () => {
+    const eexistErr = Object.assign(new Error("EEXIST: file already exists"), { code: "EEXIST" });
+    mockWriteFile.mockRejectedValueOnce(eexistErr);
+
+    const result = await handleViewSecret({
+      url: "https://vaulted.fyi/s/abc#mykey",
+      output_mode: "file",
+      file_path: "/tmp/existing.txt",
+    });
+    const parsed = parseResult(result);
+
+    expect(parsed.success).toBe(false);
+    expect(parsed.error.code).toBe("FILE_WRITE_ERROR");
+    expect(parsed.error.message).toContain("already exists");
+    expect(parsed.error.suggestion.toLowerCase()).toContain("symlink");
+    expect(mockScheduleFileDeletion).not.toHaveBeenCalled();
+  });
+
+  it("refuses to follow a symlink at the target path (ELOOP → FILE_WRITE_ERROR)", async () => {
+    const eloopErr = Object.assign(new Error("ELOOP: symbolic link encountered"), {
+      code: "ELOOP",
+    });
+    mockWriteFile.mockRejectedValueOnce(eloopErr);
+
+    const result = await handleViewSecret({
+      url: "https://vaulted.fyi/s/abc#mykey",
+      output_mode: "file",
+      file_path: "/tmp/symlink.txt",
+    });
+    const parsed = parseResult(result);
+
+    expect(parsed.success).toBe(false);
+    expect(parsed.error.code).toBe("FILE_WRITE_ERROR");
+    expect(parsed.error.message).toContain("already exists");
+    expect(mockScheduleFileDeletion).not.toHaveBeenCalled();
+  });
+
+  it("passes the wx exclusive-create flag to writeFile (TOCTOU symlink-replacement guard)", async () => {
+    mockWriteFile.mockResolvedValueOnce(undefined);
+
+    await handleViewSecret({
+      url: "https://vaulted.fyi/s/abc#mykey",
+      output_mode: "file",
+      file_path: "/tmp/secret.txt",
+    });
+
+    expect(mockWriteFile).toHaveBeenCalledWith(
+      "/tmp/secret.txt",
+      "file-plaintext",
+      expect.objectContaining({ flag: "wx" }),
+    );
   });
 });
 
@@ -682,6 +744,20 @@ describe("handleViewSecret — file mode with ttl_seconds", () => {
     expect(parsed.message).toContain("/tmp/secret.txt");
     expect(parsed.message).toContain("auto-delete");
     expect(parsed.message).toContain("5 minutes");
+  });
+
+  it("includes the best-effort caveat in the user-facing success message (AC #2 surfaced to caller, not just LLM schema)", async () => {
+    const result = await handleViewSecret({
+      url: "https://vaulted.fyi/s/abc#mykey",
+      output_mode: "file",
+      file_path: "/tmp/secret.txt",
+      ttl_seconds: 60,
+    });
+    const parsed = parseResult(result);
+
+    expect(parsed.success).toBe(true);
+    expect(parsed.message.toLowerCase()).toContain("best-effort");
+    expect(parsed.message.toLowerCase()).toMatch(/server.*running|while.*running/);
   });
 
   it("does NOT schedule deletion when ttl_seconds is omitted (existing behavior unchanged)", async () => {
