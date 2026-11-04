@@ -17,12 +17,15 @@ export type ErrorCode =
   | "COMMAND_TIMEOUT"
   | "OP_NOT_FOUND"
   | "KEYCHAIN_NOT_FOUND"
-  | "PLATFORM_NOT_SUPPORTED";
+  | "PLATFORM_NOT_SUPPORTED"
+  | "COMMAND_INPUTS_DISABLED"
+  | "INVALID_STATUS_TOKEN";
 
-interface ToolResult {
+// A type alias (not an interface) so it stays assignable to the MCP SDK's index-signature result type.
+type ToolResult = {
   content: Array<{ type: "text"; text: string }>;
   isError?: boolean;
-}
+};
 
 interface SuccessPayload<T> {
   success: true;

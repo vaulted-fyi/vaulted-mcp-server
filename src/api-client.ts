@@ -112,7 +112,7 @@ export async function checkSecretStatus(id: string, token: string): Promise<Secr
   let response: Response;
   try {
     response = await fetch(
-      `${config.baseUrl}/api/secrets/${id}/status?token=${encodeURIComponent(token)}`,
+      `${config.baseUrl}/api/status/${encodeURIComponent(id)}/${encodeURIComponent(token)}`,
       { method: "GET" },
     );
   } catch {
@@ -128,6 +128,9 @@ export async function checkSecretStatus(id: string, token: string): Promise<Secr
     }
     if (response.status === 404) {
       throw new ApiError("Secret not found or expired", 404, "SECRET_EXPIRED", body);
+    }
+    if (response.status === 403) {
+      throw new ApiError("Invalid status token", 403, "INVALID_STATUS_TOKEN", body);
     }
     const code: ErrorCode = response.status >= 500 ? "API_UNREACHABLE" : "API_ERROR";
     throw new ApiError(`Vaulted API returned ${response.status}`, response.status, code, body);

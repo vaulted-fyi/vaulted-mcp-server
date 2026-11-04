@@ -2,6 +2,7 @@ import { generateKey, exportKey, encrypt, wrapKeyWithPassphrase } from "@vaulted
 import { createSecret, ApiError } from "../api-client.js";
 import { appendHistory } from "../history.js";
 import { successResult, errorResult } from "../errors.js";
+import { resolveInput } from "../resolve-input.js";
 import { config } from "../config.js";
 
 export const EXPIRY_TO_TTL: Record<string, number> = {
@@ -27,14 +28,22 @@ export async function handleCreateSecret(params: {
   passphrase?: string;
   label?: string;
 }): Promise<{ content: Array<{ type: "text"; text: string }>; isError?: boolean }> {
-  if (!params.content || params.content.length === 0) {
+  const resolved = await resolveInput(params.content, {
+    allowCommandInputs: config.allowCommandInputs,
+  });
+  if (!resolved.success) {
+    return resolved.error;
+  }
+  const content = resolved.value;
+
+  if (content.length === 0) {
     return errorResult(
       "INVALID_INPUT",
       "Content is required",
       "Provide the secret content to share",
     );
   }
-  if (params.content.length > 1000) {
+  if (content.length > 1000) {
     return errorResult(
       "INVALID_INPUT",
       "Content exceeds 1000 character limit",
@@ -78,7 +87,7 @@ export async function handleCreateSecret(params: {
 
   try {
     key = await generateKey();
-    const encrypted = await encrypt(params.content, key);
+    const encrypted = await encrypt(content, key);
     ciphertext = encrypted.ciphertext;
     iv = encrypted.iv;
 
@@ -107,7 +116,7 @@ export async function handleCreateSecret(params: {
     });
 
     const url = `${config.baseUrl}/s/${id}#${fragment}`;
-    const statusUrl = `${config.baseUrl}/s/${id}/status?token=${statusToken}`;
+    const statusUrl = `${config.baseUrl}/status/${encodeURIComponent(id)}/${encodeURIComponent(statusToken)}`;
 
     void appendHistory({
       id,

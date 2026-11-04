@@ -152,12 +152,12 @@ describe("resolveInput", () => {
 
   describe("cmd: prefix", () => {
     it("resolves cmd:echo hello to 'hello'", async () => {
-      const result = await resolveInput("cmd:echo hello");
+      const result = await resolveInput("cmd:echo hello", { allowCommandInputs: true });
       expect(result).toEqual({ success: true, value: "hello" });
     });
 
     it("returns INVALID_INPUT for cmd: with empty command", async () => {
-      const result = await resolveInput("cmd:");
+      const result = await resolveInput("cmd:", { allowCommandInputs: true });
       expect(result.success).toBe(false);
       if (!result.success) {
         expect(parseError(result).code).toBe("INVALID_INPUT");
@@ -165,7 +165,7 @@ describe("resolveInput", () => {
     });
 
     it("returns COMMAND_FAILED for a failing command", async () => {
-      const result = await resolveInput("cmd:exit 1");
+      const result = await resolveInput("cmd:exit 1", { allowCommandInputs: true });
       expect(result.success).toBe(false);
       if (!result.success) {
         expect(parseError(result).code).toBe("COMMAND_FAILED");
@@ -175,7 +175,9 @@ describe("resolveInput", () => {
     it("does not include stdout in COMMAND_FAILED error", async () => {
       process.env.VAULTED_CMD_TEST_SECRET = "runtime-secret-xk7q2p";
       try {
-        const result = await resolveInput("cmd:echo $VAULTED_CMD_TEST_SECRET && exit 1");
+        const result = await resolveInput("cmd:echo $VAULTED_CMD_TEST_SECRET && exit 1", {
+          allowCommandInputs: true,
+        });
         expect(result.success).toBe(false);
         if (!result.success) {
           const serialized = JSON.stringify(result.error);
@@ -187,12 +189,14 @@ describe("resolveInput", () => {
     });
 
     it("supports pipes with shell: true", async () => {
-      const result = await resolveInput('cmd:echo "foo bar" | tr " " "-"');
+      const result = await resolveInput('cmd:echo "foo bar" | tr " " "-"', {
+        allowCommandInputs: true,
+      });
       expect(result).toEqual({ success: true, value: "foo-bar" });
     });
 
     it("returns INVALID_INPUT for a command that produces no output", async () => {
-      const result = await resolveInput("cmd:true");
+      const result = await resolveInput("cmd:true", { allowCommandInputs: true });
       expect(result.success).toBe(false);
       if (!result.success) {
         expect(parseError(result).code).toBe("INVALID_INPUT");
@@ -205,7 +209,7 @@ describe("resolveInput", () => {
       vi.mocked(runCommand).mockRejectedValueOnce(
         Object.assign(new Error("Command timed out"), { killed: true, stderr: "", code: null }),
       );
-      const result = await resolveInput("cmd:sleep 100");
+      const result = await resolveInput("cmd:sleep 100", { allowCommandInputs: true });
       expect(result.success).toBe(false);
       if (!result.success) {
         expect(parseError(result).code).toBe("COMMAND_TIMEOUT");
@@ -213,7 +217,7 @@ describe("resolveInput", () => {
     });
 
     it("does not leak resolved value in any error state", async () => {
-      const result = await resolveInput("cmd:exit 1");
+      const result = await resolveInput("cmd:exit 1", { allowCommandInputs: true });
       expect(result.success).toBe(false);
       if (!result.success) {
         const serialized = JSON.stringify(result.error);
@@ -234,7 +238,7 @@ describe("resolveInput", () => {
     it("resolves op:Private/Stripe API Key by calling op read with the full reference", async () => {
       const { runFile } = await import("./command-runner.js");
       vi.mocked(runFile).mockResolvedValueOnce({ stdout: "sk_live_abc123\n", stderr: "" });
-      const result = await resolveInput("op:Private/Stripe API Key");
+      const result = await resolveInput("op:Private/Stripe API Key", { allowCommandInputs: true });
       expect(result).toEqual({ success: true, value: "sk_live_abc123" });
       expect(vi.mocked(runFile)).toHaveBeenCalledWith(
         "op",
@@ -248,7 +252,7 @@ describe("resolveInput", () => {
       vi.mocked(runFile).mockClear();
       vi.mocked(runCommand).mockClear();
       vi.mocked(runFile).mockResolvedValueOnce({ stdout: "secret\n", stderr: "" });
-      await resolveInput("op:Vault/Item");
+      await resolveInput("op:Vault/Item", { allowCommandInputs: true });
       expect(vi.mocked(runFile)).toHaveBeenCalledTimes(1);
       expect(vi.mocked(runCommand)).toHaveBeenCalledTimes(0);
     });
@@ -258,7 +262,7 @@ describe("resolveInput", () => {
       vi.mocked(runFile).mockRejectedValueOnce(
         Object.assign(new Error("spawn op ENOENT"), { code: "ENOENT" }),
       );
-      const result = await resolveInput("op:Vault/Item");
+      const result = await resolveInput("op:Vault/Item", { allowCommandInputs: true });
       expect(result.success).toBe(false);
       if (!result.success) {
         expect(parseError(result).code).toBe("OP_NOT_FOUND");
@@ -275,7 +279,7 @@ describe("resolveInput", () => {
           stderr: "[ERROR] 401 Unauthorized",
         }),
       );
-      const result = await resolveInput("op:Vault/Item");
+      const result = await resolveInput("op:Vault/Item", { allowCommandInputs: true });
       expect(result.success).toBe(false);
       if (!result.success) {
         expect(parseError(result).code).toBe("COMMAND_FAILED");
@@ -294,7 +298,7 @@ describe("resolveInput", () => {
           code: null,
         }),
       );
-      const result = await resolveInput("op:Vault/SlowItem");
+      const result = await resolveInput("op:Vault/SlowItem", { allowCommandInputs: true });
       expect(result.success).toBe(false);
       if (!result.success) {
         expect(parseError(result).code).toBe("COMMAND_TIMEOUT");
@@ -302,7 +306,7 @@ describe("resolveInput", () => {
     });
 
     it("returns INVALID_INPUT when op: has no item path", async () => {
-      const result = await resolveInput("op:");
+      const result = await resolveInput("op:", { allowCommandInputs: true });
       expect(result.success).toBe(false);
       if (!result.success) {
         expect(parseError(result).code).toBe("INVALID_INPUT");
@@ -322,7 +326,7 @@ describe("resolveInput", () => {
     it("resolves keychain:MyService on macOS by calling security find-generic-password", async () => {
       const { runFile } = await import("./command-runner.js");
       vi.mocked(runFile).mockResolvedValueOnce({ stdout: "db-password-123\n", stderr: "" });
-      const result = await resolveInput("keychain:MyService");
+      const result = await resolveInput("keychain:MyService", { allowCommandInputs: true });
       expect(result).toEqual({ success: true, value: "db-password-123" });
       expect(vi.mocked(runFile)).toHaveBeenCalledWith(
         "security",
@@ -333,7 +337,7 @@ describe("resolveInput", () => {
 
     it("returns PLATFORM_NOT_SUPPORTED on non-macOS platforms", async () => {
       vi.stubGlobal("process", { ...process, platform: "linux" });
-      const result = await resolveInput("keychain:MyService");
+      const result = await resolveInput("keychain:MyService", { allowCommandInputs: true });
       expect(result.success).toBe(false);
       if (!result.success) {
         expect(parseError(result).code).toBe("PLATFORM_NOT_SUPPORTED");
@@ -348,7 +352,7 @@ describe("resolveInput", () => {
           stderr: "SecKeychainSearchCopyNext",
         }),
       );
-      const result = await resolveInput("keychain:MissingService");
+      const result = await resolveInput("keychain:MissingService", { allowCommandInputs: true });
       expect(result.success).toBe(false);
       if (!result.success) {
         expect(parseError(result).code).toBe("KEYCHAIN_NOT_FOUND");
@@ -361,7 +365,7 @@ describe("resolveInput", () => {
       vi.mocked(runFile).mockRejectedValueOnce(
         Object.assign(new Error("Command failed"), { code: 1, stderr: "access denied" }),
       );
-      const result = await resolveInput("keychain:MyService");
+      const result = await resolveInput("keychain:MyService", { allowCommandInputs: true });
       expect(result.success).toBe(false);
       if (!result.success) {
         expect(parseError(result).code).toBe("COMMAND_FAILED");
@@ -377,7 +381,7 @@ describe("resolveInput", () => {
           stderr: "some error",
         }),
       );
-      const result = await resolveInput("keychain:MyService");
+      const result = await resolveInput("keychain:MyService", { allowCommandInputs: true });
       expect(result.success).toBe(false);
       if (!result.success) {
         const serialized = JSON.stringify(result.error);
@@ -394,7 +398,7 @@ describe("resolveInput", () => {
           code: null,
         }),
       );
-      const result = await resolveInput("keychain:MyService");
+      const result = await resolveInput("keychain:MyService", { allowCommandInputs: true });
       expect(result.success).toBe(false);
       if (!result.success) {
         expect(parseError(result).code).toBe("COMMAND_TIMEOUT");
@@ -402,10 +406,49 @@ describe("resolveInput", () => {
     });
 
     it("returns INVALID_INPUT when keychain: has no service name", async () => {
-      const result = await resolveInput("keychain:");
+      const result = await resolveInput("keychain:", { allowCommandInputs: true });
       expect(result.success).toBe(false);
       if (!result.success) {
         expect(parseError(result).code).toBe("INVALID_INPUT");
+      }
+    });
+  });
+
+  describe("process-executing prefixes are disabled by default", () => {
+    it.each(["cmd:echo hi", "op:Private/Item", "keychain:MyService"])(
+      "rejects %s with COMMAND_INPUTS_DISABLED without spawning a process",
+      async (content) => {
+        const { runCommand, runFile } = await import("./command-runner.js");
+        vi.mocked(runCommand).mockClear();
+        vi.mocked(runFile).mockClear();
+
+        const result = await resolveInput(content);
+
+        expect(result.success).toBe(false);
+        if (!result.success) {
+          expect(parseError(result).code).toBe("COMMAND_INPUTS_DISABLED");
+        }
+        expect(runCommand).not.toHaveBeenCalled();
+        expect(runFile).not.toHaveBeenCalled();
+      },
+    );
+
+    it("rejects them when allowCommandInputs is explicitly false", async () => {
+      const result = await resolveInput("cmd:echo hi", { allowCommandInputs: false });
+
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(parseError(result).code).toBe("COMMAND_INPUTS_DISABLED");
+      }
+    });
+
+    it("still resolves env:, file: and dotenv: without the flag", async () => {
+      process.env.VAULTED_DEFAULT_ALLOWED = "ok";
+      try {
+        const result = await resolveInput("env:VAULTED_DEFAULT_ALLOWED");
+        expect(result).toEqual({ success: true, value: "ok" });
+      } finally {
+        delete process.env.VAULTED_DEFAULT_ALLOWED;
       }
     });
   });

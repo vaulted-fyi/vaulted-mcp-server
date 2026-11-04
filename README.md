@@ -13,15 +13,15 @@ Share encrypted, self-destructing secrets directly from Claude Desktop, Cursor, 
 
 ## Agent-blind secret sharing
 
-The headline feature: sensitive values are **resolved locally and never passed through the LLM**. When you ask your agent to share an environment variable or file, the MCP server reads the value directly from your machine — the agent only ever sees the secure link, not the secret itself.
+The headline feature: sensitive values are **resolved locally, so they stay out of the conversation transcript**. When you ask your agent to share an environment variable or file, the agent passes a reference and the MCP server reads the value directly from your machine, encrypts it, and returns the link.
 
 ```
 "Share the value of my STRIPE_SECRET_KEY env var"
-→ Agent passes: env:STRIPE_SECRET_KEY  (never sees the value)
+→ Agent passes: env:STRIPE_SECRET_KEY  (the value isn't in the transcript)
 → Server resolves it locally, encrypts, returns the link
 ```
 
-This means sensitive values never appear in your conversation history or the LLM's context.
+**What this does and doesn't protect:** the secret value never appears in your conversation history or the LLM's context. The returned link, however, contains the decryption key, so the agent receives it and could open it (for example with `view_secret`). Treat the link like the secret itself.
 
 ## Installation
 
@@ -138,10 +138,11 @@ Run `npx @vaulted/mcp-server` as a stdio transport. The server uses the standard
 
 ### Optional flags
 
-| Flag             | Default               | Description                                                                       |
-| ---------------- | --------------------- | --------------------------------------------------------------------------------- |
-| `--base-url`     | `https://vaulted.fyi` | Vaulted API base URL (for self-hosted instances)                                  |
-| `--allowed-dirs` | _(none)_              | Comma-separated directories accessible for file-based input sources (extends CWD) |
+| Flag                     | Default               | Description                                                                                                                          |
+| ------------------------ | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `--base-url`             | `https://vaulted.fyi` | Vaulted API base URL (for self-hosted instances)                                                                                     |
+| `--allowed-dirs`         | _(none)_              | Comma-separated directories accessible for file-based input sources (extends CWD)                                                    |
+| `--allow-command-inputs` | _(off)_               | Enables the `cmd:`, `op:` and `keychain:` input sources, which run local processes. See [below](#command-based-input-sources-opt-in) |
 
 Pass flags via the `args` array:
 
@@ -217,7 +218,7 @@ Check how many times a secret has been viewed and whether it's still active. **D
 
 | Parameter       | Type   | Default      | Description                                                                                                                               |
 | --------------- | ------ | ------------ | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| `url`           | string | _(one req.)_ | Status URL (e.g., `https://vaulted.fyi/s/<id>/status?token=...`)                                                                          |
+| `url`           | string | _(one req.)_ | Status URL (e.g., `https://vaulted.fyi/status/<id>/<token>`)                                                                              |
 | `secret_id`     | string | _(one req.)_ | Secret ID (alternative to `url`)                                                                                                          |
 | `status_token`  | string | _(with id)_  | Status token from secret creation (required with `secret_id`)                                                                             |
 | `previousViews` | number | _(none)_     | Pass the last known view count to detect new views since last check. When the count increases, the response includes "New view detected!" |
@@ -270,7 +271,7 @@ All tools use a consistent response shape:
 "Share the value of my GITHUB_TOKEN env var securely"
 ```
 
-→ Agent passes `env:GITHUB_TOKEN` to the tool. The server reads the value locally. The agent never sees the token.
+→ Agent passes `env:GITHUB_TOKEN` to the tool. The server reads the value locally, so the token stays out of the transcript. The agent still receives the link (which contains the decryption key).
 
 ### Agent-blind: share a file
 
@@ -346,7 +347,7 @@ All tools use a consistent response shape:
 
 ## Agent-blind input sources
 
-The `content` parameter of `create_secret` supports prefixes that instruct the server to resolve the value locally before encrypting. **The resolved value is never passed back to the agent.**
+The `content` parameter of `create_secret` supports prefixes that instruct the server to resolve the value locally before encrypting. **The resolved value is never included in tool results, errors, history or logs**, so it stays out of the conversation transcript. The returned link still contains the decryption key, so the agent could open it.
 
 | Prefix    | Example                          | Resolves to                             |
 | --------- | -------------------------------- | --------------------------------------- |
@@ -357,6 +358,31 @@ The `content` parameter of `create_secret` supports prefixes that instruct the s
 
 **Path security:** File and dotenv paths are validated against `process.cwd()` and any `--allowed-dirs` you configure. Symlinks pointing outside allowed directories are rejected with `PATH_TRAVERSAL_BLOCKED`.
 
+### Command-based input sources (opt-in)
+
+| Prefix      | Example                     | Resolves to                                                   |
+| ----------- | --------------------------- | ------------------------------------------------------------- |
+| `cmd:`      | `cmd:pass show stripe/live` | stdout of the shell command                                   |
+| `op:`       | `op:Private/Stripe API Key` | `op read op://Private/Stripe API Key` (1Password CLI)         |
+| `keychain:` | `keychain:MyService`        | `security find-generic-password -s MyService -w` (macOS only) |
+
+These prefixes run local processes, so they are **disabled by default**. Otherwise a prompt-injected model (for example, one reading a malicious web page or file) could run arbitrary commands on your machine through `create_secret`. While disabled, they are rejected with `COMMAND_INPUTS_DISABLED` and nothing is executed.
+
+Only you can enable them, by adding `--allow-command-inputs` to the server's `args` in your MCP client configuration:
+
+```json
+{
+  "mcpServers": {
+    "vaulted": {
+      "command": "npx",
+      "args": ["-y", "@vaulted/mcp-server", "--allow-command-inputs"]
+    }
+  }
+}
+```
+
+The flag is read once at startup; no tool call can turn it on. Note that an agent with write access to your MCP configuration file could add the flag itself, but it only takes effect after the server restarts, which you control. Review changes to that file.
+
 **Output modes that keep secrets out of context:** Use `browser`, `clipboard`, or `file` output modes for `view_secret` — the decrypted value is delivered directly to you without entering the agent's response or conversation history.
 
 ## Security model
@@ -366,7 +392,8 @@ The `content` parameter of `create_secret` supports prefixes that instruct the s
 - **Zero-knowledge server:** vaulted.fyi stores only ciphertext. It cannot decrypt your secrets.
 - **Self-destructing:** Secrets are deleted when max views are reached or TTL expires — whichever comes first.
 - **No accounts, no telemetry:** Anonymous usage. No API keys required.
-- **Agent-blind by design:** Input source prefixes (`env:`, `file:`, `dotenv:`) ensure sensitive values never pass through the LLM.
+- **Values stay out of the transcript:** Input source prefixes (`env:`, `file:`, `dotenv:`) keep sensitive values out of the conversation. The returned link contains the decryption key, so the agent could still open it.
+- **No command execution by default:** `cmd:`, `op:` and `keychain:` run only when you start the server with `--allow-command-inputs`.
 
 Learn more at [vaulted.fyi/security](https://vaulted.fyi/security).
 

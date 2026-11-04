@@ -316,7 +316,7 @@ describe("checkSecretStatus", () => {
     });
   });
 
-  it("calls GET {config.baseUrl}/api/secrets/{id}/status?token={token}", async () => {
+  it("calls GET {config.baseUrl}/api/status/{id}/{token}", async () => {
     mockFetch.mockResolvedValueOnce({
       ok: true,
       json: async () => ({ views: [], maxViews: 1, burned: false, createdAt: 0 }),
@@ -326,7 +326,7 @@ describe("checkSecretStatus", () => {
     await checkSecretStatus("abc123", "mytoken");
 
     expect(mockFetch).toHaveBeenCalledWith(
-      "https://test.vaulted.fyi/api/secrets/abc123/status?token=mytoken",
+      "https://test.vaulted.fyi/api/status/abc123/mytoken",
       expect.objectContaining({ method: "GET" }),
     );
   });
@@ -363,6 +363,24 @@ describe("checkSecretStatus", () => {
       expect(err).toBeInstanceOf(ApiError);
       expect((err as InstanceType<typeof ApiError>).status).toBe(404);
       expect((err as InstanceType<typeof ApiError>).code).toBe("SECRET_EXPIRED");
+    }
+  });
+
+  it("throws ApiError with INVALID_STATUS_TOKEN on 403 response", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 403,
+      json: async () => ({ error: "Forbidden" }),
+    });
+
+    const { checkSecretStatus, ApiError } = await import("./api-client.js");
+    try {
+      await checkSecretStatus("abc123", "bad");
+      expect.fail("should have thrown");
+    } catch (err) {
+      expect(err).toBeInstanceOf(ApiError);
+      expect((err as InstanceType<typeof ApiError>).status).toBe(403);
+      expect((err as InstanceType<typeof ApiError>).code).toBe("INVALID_STATUS_TOKEN");
     }
   });
 
