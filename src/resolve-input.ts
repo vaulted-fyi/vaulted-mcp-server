@@ -7,7 +7,16 @@ export type ResolveInputResult =
   | { success: true; value: string }
   | { success: false; error: ReturnType<typeof errorResult> };
 
-export async function resolveInput(content: string): Promise<ResolveInputResult> {
+const COMMAND_PREFIXES = ["cmd:", "op:", "keychain:"] as const;
+
+export async function resolveInput(
+  content: string,
+  options: { allowCommandInputs?: boolean } = {},
+): Promise<ResolveInputResult> {
+  const commandPrefix = COMMAND_PREFIXES.find((prefix) => content.startsWith(prefix));
+  if (commandPrefix && options.allowCommandInputs !== true) {
+    return commandInputsDisabled(commandPrefix);
+  }
   if (content.startsWith("env:")) {
     return resolveEnv(content.slice(4));
   }
@@ -27,6 +36,19 @@ export async function resolveInput(content: string): Promise<ResolveInputResult>
     return resolveKeychain(content.slice(9));
   }
   return { success: true, value: content };
+}
+
+// These prefixes spawn local processes, so a prompt-injected model could use them to run
+// arbitrary commands. Only the user can opt in, at server startup.
+function commandInputsDisabled(prefix: string): ResolveInputResult {
+  return {
+    success: false,
+    error: errorResult(
+      "COMMAND_INPUTS_DISABLED",
+      `The ${prefix} input source is disabled because it runs local processes`,
+      "Use env:, file:, or dotenv: instead, or ask the user to enable command inputs in their MCP server configuration",
+    ),
+  };
 }
 
 async function resolveCommand(command: string): Promise<ResolveInputResult> {

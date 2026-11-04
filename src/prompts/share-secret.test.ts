@@ -44,6 +44,13 @@ describe("shareSecretPrompt", () => {
     expect(text).toContain("dotenv:.env.local:SECRET_KEY");
   });
 
+  it("does not overclaim that the agent never has access to the secret", () => {
+    const text = getPromptText();
+    expect(text).toMatch(/transcript/i);
+    expect(text).not.toMatch(/entirely|never sees/i);
+    expect(text).toMatch(/link[^.]*decryption key/i);
+  });
+
   it("lists max views options 1, 3, 5, and 10 as a single enumeration", () => {
     const text = getPromptText();
     expect(text).toMatch(/max views/i);

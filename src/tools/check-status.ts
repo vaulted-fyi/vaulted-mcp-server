@@ -8,22 +8,38 @@ interface CheckStatusParams {
   previousViews?: number;
 }
 
-function isNonEmptyString(value: string | undefined): value is string {
+function isNonEmptyString(value: string | null | undefined): value is string {
   return typeof value === "string" && value.trim().length > 0;
 }
 
-function extractIdFromStatusPath(pathname: string): string | null {
-  const parts = pathname.split("/").filter(Boolean);
+function parseStatusUrl(parsed: URL): { id: string | null; token: string | null } {
+  let parts: string[];
+  try {
+    parts = parsed.pathname.split("/").filter(Boolean).map(decodeURIComponent);
+  } catch {
+    return { id: null, token: null };
+  }
+
+  if (parts.length === 3 && parts[0] === "status") {
+    return { id: parts[1], token: parts[2] };
+  }
+
+  if (parts.length === 4 && parts[0] === "api" && parts[1] === "status") {
+    return { id: parts[2], token: parts[3] };
+  }
+
+  // Legacy query-string formats, still present in history written by older versions.
+  const legacyToken = parsed.searchParams.get("token");
 
   if (parts.length === 3 && parts[0] === "s" && parts[2] === "status") {
-    return parts[1];
+    return { id: parts[1], token: legacyToken };
   }
 
   if (parts.length === 4 && parts[0] === "api" && parts[1] === "secrets" && parts[3] === "status") {
-    return parts[2];
+    return { id: parts[2], token: legacyToken };
   }
 
-  return null;
+  return { id: null, token: null };
 }
 
 function resolveIdAndToken(
@@ -41,13 +57,12 @@ function resolveIdAndToken(
       );
     }
 
-    const id = extractIdFromStatusPath(parsed.pathname);
-    const token = parsed.searchParams.get("token");
+    const { id, token } = parseStatusUrl(parsed);
     if (!id) {
       return errorResult(
         "INVALID_INPUT",
         "URL does not contain a valid status path",
-        "Expected /s/<secretId>/status or /api/secrets/<secretId>/status",
+        "Expected /status/<secretId>/<token> (or the legacy /s/<secretId>/status?token=<token>)",
       );
     }
     if (!isNonEmptyString(token)) {
@@ -121,6 +136,13 @@ export async function checkStatusHandler(params: CheckStatusParams) {
           "SECRET_EXPIRED",
           "This secret no longer exists",
           "This secret no longer exists. It may have expired or been destroyed.",
+        );
+      }
+      if (err.code === "INVALID_STATUS_TOKEN") {
+        return errorResult(
+          "INVALID_STATUS_TOKEN",
+          "The status token is not valid for this secret",
+          "Use the statusUrl or status token returned by create_secret, or look it up with list_secrets",
         );
       }
       if (err.code === "API_UNREACHABLE") {

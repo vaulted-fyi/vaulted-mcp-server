@@ -117,6 +117,27 @@ describe("tool registration", () => {
     });
   });
 
+  describe("create_secret description", () => {
+    async function description(): Promise<string> {
+      const { tools } = await client.listTools();
+      return tools.find((t) => t.name === "create_secret")?.description ?? "";
+    }
+
+    it("claims only that the value stays out of the transcript", async () => {
+      const text = await description();
+      expect(text).toMatch(/transcript/i);
+      expect(text).not.toMatch(/never sees|entirely|without exposing/i);
+    });
+
+    it("discloses that the returned link carries the decryption key", async () => {
+      expect(await description()).toMatch(/link[^.]*decryption key/i);
+    });
+
+    it("does not advertise process-executing prefixes when they are disabled", async () => {
+      expect(await description()).not.toMatch(/cmd:|op:|keychain:/);
+    });
+  });
+
   it("has correct annotations for view_secret", async () => {
     const { tools } = await client.listTools();
     const tool = tools.find((t) => t.name === "view_secret");
@@ -270,7 +291,7 @@ describe("create_secret integration via MCP client", () => {
     expect(parsed.success).toBe(true);
     expect(parsed.data).toEqual({
       url: expect.stringContaining("https://vaulted.fyi/s/"),
-      statusUrl: expect.stringContaining("/status?token="),
+      statusUrl: "https://vaulted.fyi/status/test-id/test-token",
       expiresIn: "24h",
       maxViews: 1,
       passphraseProtected: false,

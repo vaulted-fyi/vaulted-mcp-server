@@ -9,6 +9,7 @@ import { handleViewSecret, VIEW_SECRET_DESCRIPTION } from "./tools/view-secret.j
 import { checkStatusHandler } from "./tools/check-status.js";
 import { listSecretsHandler } from "./tools/list-secrets.js";
 import { shareSecretPrompt } from "./prompts/share-secret.js";
+import { config } from "./config.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -18,6 +19,23 @@ try {
 } catch {
   console.error("[vaulted] Failed to read package.json — cannot determine server version");
   process.exit(1);
+}
+
+function createSecretDescription(allowCommandInputs: boolean): string {
+  const parts = [
+    "Create a self-destructing, end-to-end encrypted link for sharing a secret such as a password, API key, or credential. Encryption happens locally; the Vaulted server only receives ciphertext.",
+    "To keep the value out of the conversation transcript, pass a reference instead of the value: env:VAR_NAME, file:path (restricted to the working directory and --allowed-dirs), or dotenv:path:KEY. The MCP server reads it locally and encrypts it.",
+  ];
+  if (allowCommandInputs) {
+    parts.push(
+      "The user has also enabled cmd:<command>, op:<vault>/<item> (1Password), and keychain:<service> (macOS), which run local processes to read the value.",
+    );
+  }
+  parts.push(
+    "Note: the returned link contains the decryption key, so you receive it and could open it. References keep the value out of the transcript, not out of your reach.",
+    "Optionally provide a label to identify the secret in your history.",
+  );
+  return parts.join(" ");
 }
 
 export function createServer(): McpServer {
@@ -30,12 +48,13 @@ export function createServer(): McpServer {
     "create_secret",
     {
       title: "Create Secret",
-      description:
-        "Create a secure, self-destructing link for sharing sensitive data like passwords, API keys, or credentials. The secret is encrypted end-to-end — the server never sees plaintext. Supports reading secrets from environment variables, files, or .env files without exposing them in the conversation. Optionally provide a label to identify the secret in your history.",
+      description: createSecretDescription(config.allowCommandInputs),
       inputSchema: {
         content: z
           .string()
-          .describe("The secret content to encrypt and share. Max 1000 characters."),
+          .describe(
+            "The secret to share, or a reference to it (env:VAR_NAME, file:path, dotenv:path:KEY) so the value stays out of the transcript. Max 1000 characters after resolving the reference.",
+          ),
         max_views: z
           .enum(["1", "3", "5", "10"])
           .optional()

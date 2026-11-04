@@ -12,11 +12,11 @@ Here's what I need to decide:
 I can provide the secret content in several ways:
 
 - **Direct text**: Just type or paste the secret value directly
-- **Environment variable**: Use \`env:VAR_NAME\` to read from an environment variable without the value appearing in our conversation
-- **File**: Use \`file:path/to/secret.txt\` to read from a file without the value appearing in our conversation
-- **Dotenv key**: Use \`dotenv:.env.local:SECRET_KEY\` to read a specific key from a .env file without the value appearing in our conversation
+- **Environment variable**: Use \`env:VAR_NAME\` to read from an environment variable so the value stays out of our conversation transcript
+- **File**: Use \`file:path/to/secret.txt\` to read from a file so the value stays out of our conversation transcript
+- **Dotenv key**: Use \`dotenv:.env.local:SECRET_KEY\` to read a specific key from a .env file so the value stays out of our conversation transcript
 
-For sensitive values like API keys, passwords, or credentials, I recommend using \`env:\`, \`file:\`, or \`dotenv:\` prefixes — these keep the actual secret value out of the AI conversation entirely.
+For sensitive values like API keys, passwords, or credentials, I recommend using \`env:\`, \`file:\`, or \`dotenv:\` prefixes — these keep the actual secret value out of the conversation transcript. Note that the resulting link contains the decryption key, so you (the assistant) receive it and could view the secret.
 
 ## Options
 

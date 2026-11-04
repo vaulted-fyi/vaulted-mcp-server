@@ -54,9 +54,7 @@ describe("handleCreateSecret", () => {
     expect(parsed.data.expiresIn).toBe("24h");
     expect(parsed.data.passphraseProtected).toBe(false);
     expect(parsed.data.url).toMatch(/^https:\/\/vaulted\.fyi\/s\/test-id-123#.+/);
-    expect(parsed.data.statusUrl).toBe(
-      "https://vaulted.fyi/s/test-id-123/status?token=test-token-456",
-    );
+    expect(parsed.data.statusUrl).toBe("https://vaulted.fyi/status/test-id-123/test-token-456");
     expect(result.isError).toBeUndefined();
 
     expect(createSecret).toHaveBeenCalledWith({
@@ -201,9 +199,7 @@ describe("handleCreateSecret", () => {
     const result = await handleCreateSecret({ content: "test" });
     const parsed = parseResult(result);
 
-    expect(parsed.data.statusUrl).toBe(
-      "https://vaulted.fyi/s/test-id-123/status?token=test-token-456",
-    );
+    expect(parsed.data.statusUrl).toBe("https://vaulted.fyi/status/test-id-123/test-token-456");
   });
 
   it("calls appendHistory fire-and-forget after a successful create", async () => {
