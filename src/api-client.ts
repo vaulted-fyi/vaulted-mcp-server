@@ -1,5 +1,6 @@
 import { config } from "./config.js";
 import type { ErrorCode } from "./errors.js";
+import { USER_AGENT } from "./user-agent.js";
 
 export interface CreateSecretParams {
   ciphertext: string;
@@ -31,7 +32,7 @@ export async function createSecret(params: CreateSecretParams): Promise<CreateSe
   try {
     response = await fetch(`${config.baseUrl}/api/secrets`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "User-Agent": USER_AGENT },
       body: JSON.stringify(params),
     });
   } catch {
@@ -69,6 +70,7 @@ export async function retrieveSecret(id: string): Promise<RetrieveSecretResult> 
   try {
     response = await fetch(`${config.baseUrl}/api/secrets/${id}`, {
       method: "GET",
+      headers: { "User-Agent": USER_AGENT },
     });
   } catch {
     throw new ApiError("Unable to reach the Vaulted API", 0, "API_UNREACHABLE");
@@ -113,7 +115,7 @@ export async function checkSecretStatus(id: string, token: string): Promise<Secr
   try {
     response = await fetch(
       `${config.baseUrl}/api/status/${encodeURIComponent(id)}/${encodeURIComponent(token)}`,
-      { method: "GET" },
+      { method: "GET", headers: { "User-Agent": USER_AGENT } },
     );
   } catch {
     throw new ApiError("Unable to reach the Vaulted API", 0, "API_UNREACHABLE");
