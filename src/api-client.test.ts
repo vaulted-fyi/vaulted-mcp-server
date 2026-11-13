@@ -5,7 +5,8 @@ vi.mock("./config.js", () => ({
   config: { baseUrl: "https://test.vaulted.fyi", allowedDirs: [] },
 }));
 
-const { createSecret, retrieveSecret, ApiError } = await import("./api-client.js");
+const { createSecret, retrieveSecret, checkSecretStatus, ApiError } =
+  await import("./api-client.js");
 
 const validParams = {
   ciphertext: "encrypted-data",
@@ -58,7 +59,7 @@ describe("createSecret", () => {
     expect(mockFetch).toHaveBeenCalledWith(
       expect.any(String),
       expect.objectContaining({
-        headers: { "Content-Type": "application/json" },
+        headers: expect.objectContaining({ "Content-Type": "application/json" }),
       }),
     );
   });
@@ -432,5 +433,50 @@ describe("checkSecretStatus", () => {
       expect((err as InstanceType<typeof ApiError>).status).toBe(401);
       expect((err as InstanceType<typeof ApiError>).code).toBe("API_ERROR");
     }
+  });
+});
+
+describe("User-Agent", () => {
+  const userAgentPattern = /^vaulted-mcp-server\/\d+\.\d+\.\d+/;
+  function sentUserAgent(): string | undefined {
+    const init = mockFetch.mock.calls[0][1] as RequestInit;
+    return new Headers(init.headers).get("User-Agent") ?? undefined;
+  }
+
+  beforeEach(() => {
+    mockFetch.mockReset();
+  });
+
+  it("identifies the MCP server when creating a secret", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ id: "x", statusToken: "y" }),
+    });
+
+    await createSecret(validParams);
+
+    expect(sentUserAgent()).toMatch(userAgentPattern);
+  });
+
+  it("identifies the MCP server when retrieving a secret", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ ciphertext: "c", iv: "i", hasPassphrase: false, viewsRemaining: 0 }),
+    });
+
+    await retrieveSecret("abc123");
+
+    expect(sentUserAgent()).toMatch(userAgentPattern);
+  });
+
+  it("identifies the MCP server when checking status", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ views: 0, maxViews: 1, status: "active", expiresAt: null }),
+    });
+
+    await checkSecretStatus("abc123", "tok");
+
+    expect(sentUserAgent()).toMatch(userAgentPattern);
   });
 });
