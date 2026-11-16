@@ -27,7 +27,7 @@ jobs:
         if: steps.node-cache.outputs.cache-hit != 'true'
       - run: npm run lint
       - run: npm run test -- --reporter=default --reporter=junit --outputFile.junit=test-results/junit.xml
-      - uses: testglance/action@b90eb5a0f548343bfd9633f3815e1232c94b1361 # v1
+      - uses: testglance/action@6ea5aa948326babf7bb9be653108acac29b8d57b # v1
         if: always()
         with:
           github-token: ${{ github.token }}
